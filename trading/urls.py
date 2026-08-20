@@ -1,9 +1,9 @@
 from rest_framework.routers import DefaultRouter
-from .views import (TradingAccountViewSet,TradeViewSet,
+from .views import (EquityStatisticsView, TradingAccountViewSet,TradeViewSet,
                     JournalEntryViewSet,StrategyViewSet,
                     TradeStatisticsView,SymbolStatisticsView,
                     DirectionStatisticsView,StrategyStatisticsView,
-                    TimeBasedStatisticsView,
+                    TimeStatisticsView,DashboardView
 )
 from django.urls import path,include
 router = DefaultRouter()
@@ -38,9 +38,14 @@ urlpatterns = [
              name='direction-statistics'),
     path('analytics/strategies/',StrategyStatisticsView.as_view(),
                  name='direction-statistics'),
-    path('analytics/time-based/',TimeBasedStatisticsView.as_view(),
-                 name='direction-statistics')
-    
+    path( 'analytics/time/',TimeStatisticsView.as_view(),
+         name='time-statistics'),
+    path('analytics/equity/',EquityStatisticsView.as_view(),
+      name='equity-statistics'),
+    path(
+    'dashboard/',DashboardView.as_view(),
+    name='dashboard'
+),
 
 
                ]

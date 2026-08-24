@@ -36,6 +36,7 @@ urlpatterns = [
          name='symbol-statistics'),
     path('analytics/directions/',DirectionStatisticsView.as_view(),
              name='direction-statistics'),
+    ## HAVENT TESTED THE FEATURES BELOW
     path('analytics/strategies/',StrategyStatisticsView.as_view(),
                  name='direction-statistics'),
     path( 'analytics/time/',TimeStatisticsView.as_view(),

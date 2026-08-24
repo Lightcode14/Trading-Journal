@@ -21,6 +21,7 @@ from django.utils import timezone
 
 
 class TradingAccountViewSet(viewsets.ModelViewSet):
+    permission_classes=[IsAuthenticated]
     serializer_class= TradingAccountSerializer
     def get_queryset(self):
         return TradingAccount.objects.filter(

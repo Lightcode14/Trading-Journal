@@ -19,6 +19,7 @@ class TradingAccountSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
 class TradeSerializer(serializers.ModelSerializer):
 
     strategy = serializers.PrimaryKeyRelatedField(
@@ -26,6 +27,10 @@ class TradeSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+
+    # Journal is only displayed through the Trade API.
+    # It cannot be created or changed through TradeSerializer.
+    journal = serializers.SerializerMethodField()
 
     class Meta:
         model = Trade
@@ -48,6 +53,7 @@ class TradeSerializer(serializers.ModelSerializer):
             'entry_time',
             'exit_time',
             'strategy',
+            'journal',
             'setup',
             'session',
             'entry_reason',
@@ -64,9 +70,19 @@ class TradeSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'user',
+            'journal',
             'created_at',
             'updated_at',
         ]
+
+    def get_journal(self, obj):
+
+        if not hasattr(obj, 'journal'):
+            return None
+
+        return {
+            'id': obj.journal.id
+        }
 
     def validate(self, attrs):
 
@@ -199,7 +215,6 @@ class TradeSerializer(serializers.ModelSerializer):
         return attrs
 
 
-
 class JournalEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -225,31 +240,35 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
+
     def validate_trade(self, trade):
 
-     if (
-        self.instance is None
-        and JournalEntry.objects.filter(
-            trade=trade
-        ).exists()
-    ):
-        raise serializers.ValidationError(
-            'This trade already has a journal entry.'
-        )
+        if (
+            self.instance is None
+            and JournalEntry.objects.filter(
+                trade=trade
+            ).exists()
+        ):
+            raise serializers.ValidationError(
+                'This trade already has a journal entry.'
+            )
 
-     return trade
+        return trade
+
 
 class StrategySerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Strategy
+
         fields = [
             'id',
             'name',
             'description',
             'created_at',
         ]
+
         read_only_fields = [
             'id',
             'created_at',
         ]
-    

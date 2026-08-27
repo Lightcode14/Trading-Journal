@@ -1,9 +1,10 @@
 from django.shortcuts import render
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from .serializers import (
     TradingAccountSerializer,TradeSerializer,
-    JournalEntrySerializer,StrategySerializer)
-from .models import TradingAccount,Trade,JournalEntry,Strategy
+    JournalEntrySerializer,StrategySerializer,GoalSerializer)
+from .models import TradingAccount,Trade,JournalEntry,Strategy,Goal
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from .services.analytics import(
@@ -14,6 +15,11 @@ from .services.analytics import(
     get_direction_statistics,
     get_strategy_statistics,
     get_equity_statistics) 
+from trading.services.goals import (
+    calculate_goal_progress,
+    calculate_goal_progress_status,
+    sync_goal_status,
+)
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from datetime import timedelta, datetime
@@ -527,3 +533,109 @@ class DashboardView(APIView):
         )
 
         return Response(dashboard)
+
+class GoalViewSet(viewsets.ModelViewSet):
+    serializer_class = GoalSerializer
+    permission_classes = (
+        IsAuthenticated,
+    )
+
+
+    def get_queryset(self):
+        return (
+            Goal.objects
+            .filter(
+                user=self.request.user
+            )
+            .select_related(
+                "account"
+            )
+            .order_by(
+                "-created_at"
+            )
+        )
+
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        serializer.save(
+            user=self.request.user
+        )
+
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="summary",
+    )
+    def summary(
+        self,
+        request,
+    ):
+        goals = self.get_queryset()
+
+        active_goals = 0
+        completed_goals = 0
+        on_track = 0
+        needs_attention = 0
+
+
+        for goal in goals:
+
+            # Automatically complete
+            # goals that have reached 100%.
+            sync_goal_status(
+                goal
+            )
+
+
+            if goal.status == "ACTIVE":
+                active_goals += 1
+
+
+            if goal.status == "COMPLETED":
+                completed_goals += 1
+
+
+            # Paused/completed goals should
+            # not affect current performance
+            # status cards.
+            if goal.status != "ACTIVE":
+                continue
+
+
+            progress_status = (
+                calculate_goal_progress_status(
+                    goal
+                )
+            )
+
+
+            if progress_status == "ON_TRACK":
+                on_track += 1
+
+
+            if progress_status in (
+                "BEHIND",
+                "CLOSE",
+            ):
+                needs_attention += 1
+
+
+        return Response(
+            {
+                "active_goals":
+                    active_goals,
+
+                "completed_goals":
+                    completed_goals,
+
+                "on_track":
+                    on_track,
+
+                "needs_attention":
+                    needs_attention,
+            }
+        )

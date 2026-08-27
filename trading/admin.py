@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Trade, TradingAccount
+from .models import Trade, TradingAccount,Goal
 
 
 @admin.register(TradingAccount)
@@ -35,4 +35,27 @@ class TradeAdmin(admin.ModelAdmin):
     search_fields = (
         'symbol',
         'external_trade_id',
+    )
+@admin.register(Goal)
+class GoalAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "user",
+        "account",
+        "goal_type",
+        "target",
+        "period",
+        "status",
+        "created_at",
+    )
+
+    list_filter = (
+        "goal_type",
+        "period",
+        "status",
+    )
+
+    search_fields = (
+        "title",
+        "user__email",
     )

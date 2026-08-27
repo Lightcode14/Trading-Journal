@@ -3,7 +3,7 @@ from .views import (EquityStatisticsView, TradingAccountViewSet,TradeViewSet,
                     JournalEntryViewSet,StrategyViewSet,
                     TradeStatisticsView,SymbolStatisticsView,
                     DirectionStatisticsView,StrategyStatisticsView,
-                    TimeStatisticsView,DashboardView
+                    TimeStatisticsView,DashboardView,GoalViewSet
 )
 from django.urls import path,include
 router = DefaultRouter()
@@ -27,6 +27,11 @@ router.register(
     'strategies',
     StrategyViewSet,
     basename='strategy'
+)
+router.register(
+    'goals',
+    GoalViewSet,
+    basename='goal'
 )
 urlpatterns = [
      path('', include(router.urls)),

@@ -1,6 +1,10 @@
 from rest_framework import serializers
-from .models import TradingAccount,Trade,JournalEntry,Strategy
-
+from .models import TradingAccount,Trade,JournalEntry,Strategy,Goal
+from trading.services.goals import (
+    calculate_goal_current,
+    calculate_goal_progress,
+    calculate_goal_progress_status,
+)
 class TradingAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = TradingAccount
@@ -272,3 +276,83 @@ class StrategySerializer(serializers.ModelSerializer):
             'id',
             'created_at',
         ]
+
+
+class GoalSerializer(
+    serializers.ModelSerializer
+):
+    current = serializers.SerializerMethodField()
+
+    progress = serializers.SerializerMethodField()
+
+    progress_status = (
+        serializers.SerializerMethodField()
+    )
+
+
+    class Meta:
+        model = Goal
+
+        fields = (
+            "id",
+            "title",
+            "description",
+            "goal_type",
+            "target",
+            "account",
+            "period",
+            "status",
+
+            "current",
+            "progress",
+            "progress_status",
+
+            "created_at",
+            "updated_at",
+        )
+
+        read_only_fields = (
+            "id",
+            "current",
+            "progress",
+            "progress_status",
+            "created_at",
+            "updated_at",
+        )
+
+
+    def get_current(
+        self,
+        obj,
+    ):
+        value = (
+            calculate_goal_current(
+                obj
+            )
+        )
+
+        return float(value)
+
+
+    def get_progress(
+        self,
+        obj,
+    ):
+        value = (
+            calculate_goal_progress(
+                obj
+            )
+        )
+
+        return float(value)
+
+
+    def get_progress_status(
+        self,
+        obj,
+    ):
+        return (
+            calculate_goal_progress_status(
+                obj
+            )
+        )

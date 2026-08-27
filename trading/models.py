@@ -218,3 +218,136 @@ class JournalEntry(models.Model):
     def __str__(self):
         return f"Journal - {self.trade}"
 
+class Goal(models.Model):
+
+    class GoalType(models.TextChoices):
+        PROFIT = "PROFIT", "Profit Target"
+
+        TRADE_COUNT = (
+            "TRADE_COUNT",
+            "Trade Count",
+        )
+
+        WIN_RATE = (
+            "WIN_RATE",
+            "Win Rate",
+        )
+
+        JOURNAL_COMPLETION = (
+            "JOURNAL_COMPLETION",
+            "Journal Completion",
+        )
+
+        MAX_LOSS = (
+            "MAX_LOSS",
+            "Maximum Loss",
+        )
+
+        AVERAGE_RISK = (
+            "AVERAGE_RISK",
+            "Average Risk",
+        )
+
+
+    class Period(models.TextChoices):
+        DAILY = "DAILY", "Daily"
+
+        MONTHLY = (
+            "MONTHLY",
+            "Monthly",
+        )
+
+        QUARTERLY = (
+            "QUARTERLY",
+            "Quarterly",
+        )
+
+        YEARLY = (
+            "YEARLY",
+            "Yearly",
+        )
+
+
+    class Status(models.TextChoices):
+        ACTIVE = (
+            "ACTIVE",
+            "Active",
+        )
+
+        COMPLETED = (
+            "COMPLETED",
+            "Completed",
+        )
+
+        PAUSED = (
+            "PAUSED",
+            "Paused",
+        )
+
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="goals",
+    )
+
+
+    account = models.ForeignKey(
+        "trading.TradingAccount",
+        on_delete=models.CASCADE,
+        related_name="goals",
+        null=True,
+        blank=True,
+    )
+
+
+    title = models.CharField(
+        max_length=150
+    )
+
+
+    description = models.TextField(
+        blank=True
+    )
+
+
+    goal_type = models.CharField(
+        max_length=30,
+        choices=GoalType.choices,
+    )
+
+
+    target = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+    )
+
+
+    period = models.CharField(
+        max_length=20,
+        choices=Period.choices,
+        default=Period.MONTHLY,
+    )
+
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+
+    def __str__(self):
+        return (
+            f"{self.user} - {self.title}"
+        )

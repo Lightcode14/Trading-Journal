@@ -24,6 +24,29 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from datetime import timedelta, datetime
 from django.utils import timezone
+from rest_framework.decorators import action
+from rest_framework.parsers import (
+    FormParser,
+    MultiPartParser,
+)
+from rest_framework.response import Response
+from rest_framework import status
+
+from trading.models import (
+    TradingAccount,
+)
+
+from trading.services.trade_import import (
+    import_trade_csv,
+    import_trade_json
+)
+from rest_framework.permissions import (
+    AllowAny,
+)
+
+from trading.services.tradingview import (
+    process_tradingview_webhook,
+)
 
 
 class TradingAccountViewSet(viewsets.ModelViewSet):
@@ -39,21 +62,394 @@ class TradingAccountViewSet(viewsets.ModelViewSet):
             user=self.request.user
         )
 
-class TradeViewSet(viewsets.ModelViewSet):
-    serializer_class=TradeSerializer
-    permission_classes=[IsAuthenticated]
-    def get_queryset(self):
+class TradeViewSet(
+    viewsets.ModelViewSet
+):
+    serializer_class = TradeSerializer
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+
+    # =========================================
+    # QUERYSET
+    # =========================================
+
+    def get_queryset(
+        self
+    ):
         return Trade.objects.filter(
             user=self.request.user
         )
 
-    def perform_create(self, serializer):
-        account = serializer.validated_data['account']
 
-        if account.user != self.request.user:
+    # =========================================
+    # CREATE TRADE
+    # =========================================
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+        account = (
+            serializer
+            .validated_data[
+                "account"
+            ]
+        )
+
+
+        if (
+            account.user !=
+            self.request.user
+        ):
             raise PermissionDenied(
-                'You do not have permission to use this trading account.'
+                "You do not have permission to use this trading account."
             )
+
+
+        serializer.save(
+            user=self.request.user
+        )
+
+
+    # =========================================
+    # CSV IMPORT
+    # =========================================
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import",
+        parser_classes=[
+            MultiPartParser,
+            FormParser,
+        ],
+    )
+    def import_trades(
+        self,
+        request,
+    ):
+        uploaded_file = (
+            request.FILES.get(
+                "file"
+            )
+        )
+
+        account_id = (
+            request.data.get(
+                "account"
+            )
+        )
+
+
+        if not uploaded_file:
+            return Response(
+                {
+                    "detail":
+                        "Please upload a CSV file."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        if not account_id:
+            return Response(
+                {
+                    "detail":
+                        "Please provide a trading account."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        if (
+            not uploaded_file
+            .name
+            .lower()
+            .endswith(
+                ".csv"
+            )
+        ):
+            return Response(
+                {
+                    "detail":
+                        "Only CSV files are supported."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        try:
+            account = (
+                TradingAccount.objects.get(
+                    id=account_id,
+                    user=request.user,
+                )
+            )
+
+        except TradingAccount.DoesNotExist:
+            return Response(
+                {
+                    "detail":
+                        "Trading account not found."
+                },
+                status=
+                    status.HTTP_404_NOT_FOUND,
+            )
+
+
+        try:
+            result = import_trade_csv(
+                uploaded_file=
+                    uploaded_file,
+
+                user=
+                    request.user,
+
+                account=
+                    account,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {
+                    "detail":
+                        str(exc)
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        if not result["success"]:
+            return Response(
+                result,
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        return Response(
+            result,
+            status=
+                status.HTTP_201_CREATED,
+        )
+
+
+    # =========================================
+    # JSON IMPORT
+    # =========================================
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="import-json",
+    )
+    def import_json(
+        self,
+        request,
+    ):
+        account_id = (
+            request.data.get(
+                "account"
+            )
+        )
+
+        trades_data = (
+            request.data.get(
+                "trades"
+            )
+        )
+
+
+        if not account_id:
+            return Response(
+                {
+                    "detail":
+                        "Please provide a trading account."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        if trades_data is None:
+            return Response(
+                {
+                    "detail":
+                        "Please provide trades."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        try:
+            account = (
+                TradingAccount.objects.get(
+                    id=account_id,
+                    user=request.user,
+                )
+            )
+
+        except TradingAccount.DoesNotExist:
+            return Response(
+                {
+                    "detail":
+                        "Trading account not found."
+                },
+                status=
+                    status.HTTP_404_NOT_FOUND,
+            )
+
+
+        try:
+            result = import_trade_json(
+                trades_data=
+                    trades_data,
+
+                user=
+                    request.user,
+
+                account=
+                    account,
+            )
+
+        except ValueError as exc:
+            return Response(
+                {
+                    "detail":
+                        str(exc)
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        if not result["success"]:
+            return Response(
+                result,
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        return Response(
+            result,
+            status=
+                status.HTTP_201_CREATED,
+        )
+
+class TradingViewWebhookView(
+    APIView
+):
+    permission_classes = [
+        AllowAny
+    ]
+
+
+    def post(
+        self,
+        request,
+    ):
+        secret = (
+            request.data.get(
+                "secret"
+            )
+        )
+
+
+        if not secret:
+            return Response(
+                {
+                    "detail":
+                        "Webhook secret is required."
+                },
+                status=
+                    status.HTTP_401_UNAUTHORIZED,
+            )
+
+
+        try:
+            account = (
+                TradingAccount
+                .objects
+                .select_related(
+                    "user"
+                )
+                .get(
+                    webhook_secret=
+                        secret
+                )
+            )
+
+        except TradingAccount.DoesNotExist:
+            return Response(
+                {
+                    "detail":
+                        "Invalid webhook secret."
+                },
+                status=
+                    status.HTTP_401_UNAUTHORIZED,
+            )
+
+
+        try:
+            result = (
+                process_tradingview_webhook(
+                    account=account,
+                    payload=request.data,
+                )
+            )
+
+        except ValueError as exc:
+            return Response(
+                {
+                    "detail":
+                        str(exc)
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        trade = result[
+            "trade"
+        ]
+
+
+        return Response(
+            {
+                "success":
+                    True,
+
+                "created":
+                    result["created"],
+
+                "trade_id":
+                    trade.id,
+
+                "external_trade_id":
+                    trade.external_trade_id,
+
+                "status":
+                    trade.status,
+
+                "source":
+                    trade.source,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if result["created"]
+                else status.HTTP_200_OK
+            ),
+        )
+    
 class JournalEntryViewSet(viewsets.ModelViewSet):
     serializer_class = JournalEntrySerializer
     permission_classes = [IsAuthenticated]

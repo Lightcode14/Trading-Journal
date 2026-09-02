@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from trading.models import TradingAccount
 
-from .models import UserPreference
+from .models import UserPreference,User
 
 
 class UserPreferenceSerializer(
@@ -79,3 +79,123 @@ class UserPreferenceSerializer(
 
 
         return value
+
+
+from rest_framework import serializers
+
+from .models import (
+    User,
+    UserPreference,
+)
+
+
+class UserProfileSerializer(
+    serializers.ModelSerializer
+):
+    display_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )
+
+    class Meta:
+        model = User
+
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "display_name",
+        )
+
+        read_only_fields = (
+            "id",
+        )
+
+
+    def validate_email(
+        self,
+        value,
+    ):
+        value = value.lower().strip()
+
+        queryset = (
+            User.objects
+            .filter(
+                email__iexact=value
+            )
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(
+                pk=self.instance.pk
+            )
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A user with this email address already exists."
+            )
+
+        return value
+
+
+    def to_representation(
+        self,
+        instance,
+    ):
+        data = super().to_representation(
+            instance
+        )
+
+        preferences = getattr(
+            instance,
+            "preferences",
+            None,
+        )
+
+        data["display_name"] = (
+            preferences.display_name
+            if preferences
+            else ""
+        )
+
+        return data
+
+
+    def update(
+        self,
+        instance,
+        validated_data,
+    ):
+        display_name = (
+            validated_data.pop(
+                "display_name",
+                None,
+            )
+        )
+
+        instance = super().update(
+            instance,
+            validated_data,
+        )
+
+        preferences, _ = (
+            UserPreference.objects
+            .get_or_create(
+                user=instance
+            )
+        )
+
+        if display_name is not None:
+            preferences.display_name = (
+                display_name
+            )
+
+            preferences.save(
+                update_fields=[
+                    "display_name",
+                    "updated_at",
+                ]
+            )
+
+        return instance

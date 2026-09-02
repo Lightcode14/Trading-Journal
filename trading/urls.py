@@ -3,8 +3,10 @@ from .views import (EquityStatisticsView, TradingAccountViewSet,TradeViewSet,
                     JournalEntryViewSet,StrategyViewSet,
                     TradeStatisticsView,SymbolStatisticsView,
                     DirectionStatisticsView,StrategyStatisticsView,
-                    TimeStatisticsView,DashboardView,GoalViewSet
-)
+                    TimeStatisticsView,DashboardView,GoalViewSet,
+                    TradingViewWebhookView
+                     
+            )
 from django.urls import path,include
 router = DefaultRouter()
 
@@ -50,8 +52,13 @@ urlpatterns = [
       name='equity-statistics'),
     path(
     'dashboard/',DashboardView.as_view(),
-    name='dashboard'
+    name='dashboard'),
+    path(
+    "tradingview/webhook/",
+    TradingViewWebhookView.as_view(),
+    name="tradingview-webhook",
 ),
+    
 
 
                ]

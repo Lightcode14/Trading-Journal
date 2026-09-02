@@ -12,6 +12,7 @@ from users.models import (
 
 from users.serializers import (
     UserPreferenceSerializer,
+    UserProfileSerializer
 )
 
 
@@ -36,3 +37,20 @@ class UserPreferenceView(
         )
 
         return preferences
+
+
+class UserProfileView(
+    RetrieveUpdateAPIView
+):
+
+    serializer_class = (
+        UserProfileSerializer
+    )
+
+    permission_classes = (
+        IsAuthenticated,
+    )
+
+
+    def get_object(self):
+        return self.request.user

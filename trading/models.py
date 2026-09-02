@@ -1,22 +1,77 @@
 from django.db import models
 from django.conf import settings
 from users.models import User
+import secrets
+
 
 class TradingAccount(models.Model):
-    user=models.ForeignKey(settings.AUTH_USER_MODEL,
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='trading_accounts'
+        related_name="trading_accounts",
     )
-    name = models.CharField(max_length=100)
-    broker = models.CharField(max_length=100,blank=True)
-    account_identifier = models.CharField( max_length=100, blank=True)
-    currency = models.CharField( max_length=10,default='USD')
-    starting_balance = models.DecimalField(max_digits=15,decimal_places=2, default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+    name = models.CharField(
+        max_length=100
+    )
+
+    broker = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    account_identifier = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    currency = models.CharField(
+        max_length=10,
+        default="USD",
+    )
+
+    starting_balance = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+    )
+
+    webhook_secret = models.CharField(
+        max_length=64,
+        unique=True,
+        blank=True,
+        null=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
 
     def __str__(self):
         return self.name
+
+
+    def save(
+        self,
+        *args,
+        **kwargs,
+    ):
+        if not self.webhook_secret:
+            self.webhook_secret = (
+                secrets.token_urlsafe(32)
+            )
+
+        super().save(
+            *args,
+            **kwargs
+        )
+
+
 class Strategy(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

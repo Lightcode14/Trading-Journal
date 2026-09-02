@@ -60,6 +60,11 @@ class UserPreference(models.Model):
         related_name="default_for_users",
     )
 
+    display_name = models.CharField(
+    max_length=100,
+    blank=True,
+)
+
 
     default_risk_unit = models.CharField(
         max_length=20,

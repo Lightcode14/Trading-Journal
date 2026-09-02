@@ -42,6 +42,9 @@ class TradingAccount(models.Model):
         blank=True,
         null=True,
     )
+    webhook_enabled = models.BooleanField(
+    default=True
+)
 
     created_at = models.DateTimeField(
         auto_now_add=True
@@ -219,6 +222,22 @@ class Trade(models.Model):
     max_length=50
 )
 
+
+
+    class Meta:
+     constraints = [
+        models.UniqueConstraint(
+            fields=[
+                "account",
+                "source",
+                "external_trade_id",
+            ],
+            condition=~models.Q(
+                external_trade_id=""
+            ),
+            name="unique_external_trade_per_account_source",
+        )
+         ]
     def __str__(self):
         return f'{self.symbol} - {self.direction}'
 

@@ -53,9 +53,8 @@ urlpatterns = [
     path(
     'dashboard/',DashboardView.as_view(),
     name='dashboard'),
-    path(
-    "tradingview/webhook/",
-    TradingViewWebhookView.as_view(),
+    path("tradingview/webhook/<str:secret>/",
+         TradingViewWebhookView.as_view(),
     name="tradingview-webhook",
 ),
     

@@ -46,22 +46,268 @@ from rest_framework.permissions import (
 
 from trading.services.tradingview import (
     process_tradingview_webhook,
+    get_tradingview_templates
 )
 
+from django_filters.rest_framework import (
+    DjangoFilterBackend,
+)
 
-class TradingAccountViewSet(viewsets.ModelViewSet):
-    permission_classes=[IsAuthenticated]
-    serializer_class= TradingAccountSerializer
-    def get_queryset(self):
-        return TradingAccount.objects.filter(
-            user=self.request.user
+from rest_framework.filters import (
+    OrderingFilter,
+    SearchFilter,
+)
+
+class TradingAccountViewSet(
+    viewsets.ModelViewSet
+):
+    serializer_class = (
+        TradingAccountSerializer
+    )
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+
+    # =========================================
+    # USER-OWNED ACCOUNTS ONLY
+    # =========================================
+
+    def get_queryset(
+        self
+    ):
+        return (
+            TradingAccount
+            .objects
+            .filter(
+                user=self.request.user
+            )
         )
 
-    def perform_create(self, serializer):
+
+    # =========================================
+    # CREATE ACCOUNT
+    # =========================================
+
+    def perform_create(
+        self,
+        serializer,
+    ):
         serializer.save(
             user=self.request.user
         )
 
+
+    # =========================================
+    # TRADINGVIEW SETTINGS
+    # =========================================
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="tradingview",
+    )
+    def tradingview_settings(
+        self,
+        request,
+        pk=None,
+    ):
+        account = (
+            self.get_object()
+        )
+
+
+        # =====================================
+        # WEBHOOK URL
+        # =====================================
+
+        webhook_url = (
+            request.build_absolute_uri(
+                f"/api/trading/"
+                f"tradingview/"
+                f"webhook/"
+                f"{account.webhook_secret}/"
+            )
+        )
+
+
+        # =====================================
+        # ALERT TEMPLATES
+        # =====================================
+
+        templates = (
+            get_tradingview_templates(
+                account
+            )
+        )
+
+
+        # =====================================
+        # RESPONSE
+        # =====================================
+
+        return Response(
+            {
+                "account_id":
+                    account.id,
+
+                "account_name":
+                    account.name,
+
+                "enabled":
+                    account.webhook_enabled,
+
+                "has_secret":
+                    bool(
+                        account.webhook_secret
+                    ),
+
+                "webhook_secret":
+                    account.webhook_secret,
+
+                "webhook_url":
+                    webhook_url,
+
+                "templates":
+                    templates,
+            }
+        )
+
+
+    # =========================================
+    # REGENERATE WEBHOOK SECRET
+    # =========================================
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=(
+            "tradingview/"
+            "regenerate-secret"
+        ),
+    )
+    def regenerate_webhook_secret(
+        self,
+        request,
+        pk=None,
+    ):
+        account = (
+            self.get_object()
+        )
+
+
+        account.webhook_secret = (
+            secrets.token_urlsafe(
+                32
+            )
+        )
+
+
+        account.save(
+            update_fields=[
+                "webhook_secret",
+                "updated_at",
+            ]
+        )
+
+
+        # Build the new URL immediately
+        # because the secret just changed.
+        webhook_url = (
+            request.build_absolute_uri(
+                f"/api/trading/"
+                f"tradingview/"
+                f"webhook/"
+                f"{account.webhook_secret}/"
+            )
+        )
+
+
+        return Response(
+            {
+                "success":
+                    True,
+
+                "account_id":
+                    account.id,
+
+                "webhook_secret":
+                    account.webhook_secret,
+
+                "webhook_url":
+                    webhook_url,
+            }
+        )
+
+
+    # =========================================
+    # ENABLE / DISABLE WEBHOOK
+    # =========================================
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path=(
+            "tradingview/status"
+        ),
+    )
+    def update_webhook_status(
+        self,
+        request,
+        pk=None,
+    ):
+        account = (
+            self.get_object()
+        )
+
+
+        enabled = (
+            request.data.get(
+                "enabled"
+            )
+        )
+
+
+        if not isinstance(
+            enabled,
+            bool,
+        ):
+            return Response(
+                {
+                    "detail":
+                        "enabled must be true or false."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+
+        account.webhook_enabled = (
+            enabled
+        )
+
+
+        account.save(
+            update_fields=[
+                "webhook_enabled",
+                "updated_at",
+            ]
+        )
+
+
+        return Response(
+            {
+                "success":
+                    True,
+
+                "account_id":
+                    account.id,
+
+                "enabled":
+                    account.webhook_enabled,
+            }
+        )
 class TradeViewSet(
     viewsets.ModelViewSet
 ):
@@ -71,7 +317,38 @@ class TradeViewSet(
         IsAuthenticated
     ]
 
+    filter_backends = [
+        DjangoFilterBackend,
+        SearchFilter,
+        OrderingFilter,
+    ]
 
+    filterset_fields = [
+        "account",
+        "direction",
+        "status",
+        "strategy",
+        "source",
+    ]
+
+    search_fields = [
+        "symbol",
+        "external_trade_id",
+    ]
+
+    ordering_fields = [
+        "entry_time",
+        "exit_time",
+        "created_at",
+        "updated_at",
+        "profit_loss",
+        "entry_price",
+        "position_size",
+    ]
+
+    ordering = [
+        "-entry_time"
+    ]
     # =========================================
     # QUERYSET
     # =========================================
@@ -79,8 +356,15 @@ class TradeViewSet(
     def get_queryset(
         self
     ):
-        return Trade.objects.filter(
-            user=self.request.user
+        return (
+            Trade.objects
+            .filter(
+                user=self.request.user
+            )
+            .select_related(
+                "account",
+                "strategy",
+            )
         )
 
 
@@ -356,24 +640,11 @@ class TradingViewWebhookView(
     def post(
         self,
         request,
+        secret,
     ):
-        secret = (
-            request.data.get(
-                "secret"
-            )
-        )
-
-
-        if not secret:
-            return Response(
-                {
-                    "detail":
-                        "Webhook secret is required."
-                },
-                status=
-                    status.HTTP_401_UNAUTHORIZED,
-            )
-
+        # =====================================
+        # FIND ENABLED TRADING ACCOUNT
+        # =====================================
 
         try:
             account = (
@@ -383,8 +654,8 @@ class TradingViewWebhookView(
                     "user"
                 )
                 .get(
-                    webhook_secret=
-                        secret
+                    webhook_secret=secret,
+                    webhook_enabled=True,
                 )
             )
 
@@ -392,12 +663,16 @@ class TradingViewWebhookView(
             return Response(
                 {
                     "detail":
-                        "Invalid webhook secret."
+                        "Invalid webhook secret or integration is disabled."
                 },
                 status=
                     status.HTTP_401_UNAUTHORIZED,
             )
 
+
+        # =====================================
+        # PROCESS TRADINGVIEW EVENT
+        # =====================================
 
         try:
             result = (
@@ -418,15 +693,22 @@ class TradingViewWebhookView(
             )
 
 
-        trade = result[
-            "trade"
-        ]
+        # =====================================
+        # RESULT
+        # =====================================
+
+        trade = (
+            result["trade"]
+        )
 
 
         return Response(
             {
                 "success":
                     True,
+
+                "event":
+                    result["event"],
 
                 "created":
                     result["created"],
@@ -443,13 +725,13 @@ class TradingViewWebhookView(
                 "source":
                     trade.source,
             },
+
             status=(
                 status.HTTP_201_CREATED
                 if result["created"]
                 else status.HTTP_200_OK
             ),
         )
-    
 class JournalEntryViewSet(viewsets.ModelViewSet):
     serializer_class = JournalEntrySerializer
     permission_classes = [IsAuthenticated]

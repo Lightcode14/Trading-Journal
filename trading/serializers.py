@@ -24,200 +24,362 @@ class TradingAccountSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
 
-class TradeSerializer(serializers.ModelSerializer):
-
+class TradeSerializer(
+    serializers.ModelSerializer
+):
     strategy = serializers.PrimaryKeyRelatedField(
         queryset=Strategy.objects.all(),
         required=False,
-        allow_null=True
+        allow_null=True,
     )
 
-    # Journal is only displayed through the Trade API.
-    # It cannot be created or changed through TradeSerializer.
-    journal = serializers.SerializerMethodField()
 
     class Meta:
         model = Trade
 
-        fields = [
-            'id',
-            'account',
-            'user',
-            'symbol',
-            'direction',
-            'status',
-            'entry_price',
-            'exit_price',
-            'stop_loss',
-            'take_profit',
-            'position_size',
-            'risk_amount',
-            'profit_loss',
-            'fees',
-            'entry_time',
-            'exit_time',
-            'strategy',
-            'journal',
-            'setup',
-            'session',
-            'entry_reason',
-            'exit_reason',
-            'emotions',
-            'mistakes',
-            'lessons',
-            'source',
-            'external_trade_id',
-            'created_at',
-            'updated_at',
-        ]
+        fields = (
+            "id",
+            "account",
+            "user",
+            "strategy",
+            "symbol",
+            "direction",
+            "status",
+            "entry_price",
+            "exit_price",
+            "stop_loss",
+            "take_profit",
+            "position_size",
+            "risk_amount",
+            "profit_loss",
+            "fees",
+            "entry_time",
+            "exit_time",
+            "source",
+            "external_trade_id",
+            "created_at",
+            "updated_at",
+        )
 
-        read_only_fields = [
-            'id',
-            'user',
-            'journal',
-            'created_at',
-            'updated_at',
-        ]
+        read_only_fields = (
+            "id",
+            "user",
+            "created_at",
+            "updated_at",
+        )
 
-    def get_journal(self, obj):
 
-        if not hasattr(obj, 'journal'):
-            return None
+    # =========================================
+    # ACCOUNT OWNERSHIP
+    # =========================================
 
-        return {
-            'id': obj.journal.id
-        }
+    def validate_account(
+        self,
+        account,
+    ):
+        request = self.context.get(
+            "request"
+        )
 
-    def validate(self, attrs):
+        if (
+            request
+            and account.user != request.user
+        ):
+            raise serializers.ValidationError(
+                "You cannot use another user's trading account."
+            )
 
-        # -----------------------------------------
-        # Strategy ownership validation
-        # -----------------------------------------
+        return account
 
-        strategy = attrs.get('strategy')
 
-        if strategy is not None:
+    # =========================================
+    # STRATEGY OWNERSHIP
+    # =========================================
 
-            if strategy.user != self.context['request'].user:
-                raise serializers.ValidationError({
-                    'strategy': (
-                        "You cannot use another user's strategy."
-                    )
-                })
+    def validate_strategy(
+        self,
+        strategy,
+    ):
+        if strategy is None:
+            return strategy
 
-        # -----------------------------------------
-        # Trade validation
-        # -----------------------------------------
+        request = self.context.get(
+            "request"
+        )
 
-        direction = attrs.get('direction')
+        if (
+            request
+            and strategy.user != request.user
+        ):
+            raise serializers.ValidationError(
+                "You cannot use another user's strategy."
+            )
 
-        entry_price = attrs.get('entry_price')
-        exit_price = attrs.get('exit_price')
-        stop_loss = attrs.get('stop_loss')
-        take_profit = attrs.get('take_profit')
-        position_size = attrs.get('position_size')
+        return strategy
 
-        # -----------------------------------------
-        # Positive value validation
-        # -----------------------------------------
 
-        if entry_price is not None and entry_price <= 0:
-            raise serializers.ValidationError({
-                'entry_price': (
-                    'Entry price must be greater than zero.'
+    # =========================================
+    # ENTRY PRICE
+    # =========================================
+
+    def validate_entry_price(
+        self,
+        value,
+    ):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Entry price must be greater than zero."
+            )
+
+        return value
+
+
+    # =========================================
+    # POSITION SIZE
+    # =========================================
+
+    def validate_position_size(
+        self,
+        value,
+    ):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Position size must be greater than zero."
+            )
+
+        return value
+
+
+    # =========================================
+    # RISK AMOUNT
+    # =========================================
+
+    def validate_risk_amount(
+        self,
+        value,
+    ):
+        if (
+            value is not None
+            and value < 0
+        ):
+            raise serializers.ValidationError(
+                "Risk amount cannot be negative."
+            )
+
+        return value
+
+
+    # =========================================
+    # FEES
+    # =========================================
+
+    def validate_fees(
+        self,
+        value,
+    ):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Fees cannot be negative."
+            )
+
+        return value
+
+
+    # =========================================
+    # COMPLETE TRADE VALIDATION
+    # =========================================
+
+    def validate(
+        self,
+        attrs,
+    ):
+        # This handles PATCH correctly.
+        # If a field is not included in attrs,
+        # use the existing trade value.
+
+        instance = self.instance
+
+
+        direction = attrs.get(
+            "direction",
+            getattr(
+                instance,
+                "direction",
+                None,
+            ),
+        )
+
+        status = attrs.get(
+            "status",
+            getattr(
+                instance,
+                "status",
+                Trade.Status.CLOSED,
+            ),
+        )
+
+        entry_price = attrs.get(
+            "entry_price",
+            getattr(
+                instance,
+                "entry_price",
+                None,
+            ),
+        )
+
+        exit_price = attrs.get(
+            "exit_price",
+            getattr(
+                instance,
+                "exit_price",
+                None,
+            ),
+        )
+
+        stop_loss = attrs.get(
+            "stop_loss",
+            getattr(
+                instance,
+                "stop_loss",
+                None,
+            ),
+        )
+
+        take_profit = attrs.get(
+            "take_profit",
+            getattr(
+                instance,
+                "take_profit",
+                None,
+            ),
+        )
+
+        entry_time = attrs.get(
+            "entry_time",
+            getattr(
+                instance,
+                "entry_time",
+                None,
+            ),
+        )
+
+        exit_time = attrs.get(
+            "exit_time",
+            getattr(
+                instance,
+                "exit_time",
+                None,
+            ),
+        )
+
+
+        # =====================================
+        # CLOSED TRADE REQUIREMENTS
+        # =====================================
+
+        if status == Trade.Status.CLOSED:
+
+            if exit_price is None:
+                raise serializers.ValidationError(
+                    {
+                        "exit_price":
+                            "Exit price is required for a closed trade."
+                    }
                 )
-            })
 
-        if exit_price is not None and exit_price <= 0:
-            raise serializers.ValidationError({
-                'exit_price': (
-                    'Exit price must be greater than zero.'
+            if exit_time is None:
+                raise serializers.ValidationError(
+                    {
+                        "exit_time":
+                            "Exit time is required for a closed trade."
+                    }
                 )
-            })
 
-        if position_size is not None and position_size <= 0:
-            raise serializers.ValidationError({
-                'position_size': (
-                    'Position size must be greater than zero.'
-                )
-            })
 
-        if stop_loss is not None and stop_loss <= 0:
-            raise serializers.ValidationError({
-                'stop_loss': (
-                    'Stop loss must be greater than zero.'
-                )
-            })
+        # =====================================
+        # EXIT TIME MUST FOLLOW ENTRY TIME
+        # =====================================
 
-        if take_profit is not None and take_profit <= 0:
-            raise serializers.ValidationError({
-                'take_profit': (
-                    'Take profit must be greater than zero.'
-                )
-            })
+        if (
+            entry_time is not None
+            and exit_time is not None
+            and exit_time < entry_time
+        ):
+            raise serializers.ValidationError(
+                {
+                    "exit_time":
+                        "Exit time cannot be earlier than entry time."
+                }
+            )
 
-        # -----------------------------------------
-        # LONG trade validation
-        # -----------------------------------------
 
-        if direction == Trade.Direction.LONG:
+        # =====================================
+        # STOP LOSS DIRECTION VALIDATION
+        # =====================================
+
+        if (
+            stop_loss is not None
+            and entry_price is not None
+        ):
 
             if (
-                stop_loss is not None
-                and entry_price is not None
+                direction == Trade.Direction.LONG
                 and stop_loss >= entry_price
             ):
-                raise serializers.ValidationError({
-                    'stop_loss': (
-                        'For a long trade, stop loss '
-                        'should be below entry price.'
-                    )
-                })
+                raise serializers.ValidationError(
+                    {
+                        "stop_loss":
+                            "For a LONG trade, stop loss must be below the entry price."
+                    }
+                )
+
 
             if (
-                take_profit is not None
-                and entry_price is not None
-                and take_profit <= entry_price
-            ):
-                raise serializers.ValidationError({
-                    'take_profit': (
-                        'For a long trade, take profit '
-                        'should be above entry price.'
-                    )
-                })
-
-        # -----------------------------------------
-        # SHORT trade validation
-        # -----------------------------------------
-
-        if direction == Trade.Direction.SHORT:
-
-            if (
-                stop_loss is not None
-                and entry_price is not None
+                direction == Trade.Direction.SHORT
                 and stop_loss <= entry_price
             ):
-                raise serializers.ValidationError({
-                    'stop_loss': (
-                        'For a short trade, stop loss '
-                        'should be above entry price.'
-                    )
-                })
+                raise serializers.ValidationError(
+                    {
+                        "stop_loss":
+                            "For a SHORT trade, stop loss must be above the entry price."
+                    }
+                )
+
+
+        # =====================================
+        # TAKE PROFIT DIRECTION VALIDATION
+        # =====================================
+
+        if (
+            take_profit is not None
+            and entry_price is not None
+        ):
 
             if (
-                take_profit is not None
-                and entry_price is not None
+                direction == Trade.Direction.LONG
+                and take_profit <= entry_price
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "take_profit":
+                            "For a LONG trade, take profit must be above the entry price."
+                    }
+                )
+
+
+            if (
+                direction == Trade.Direction.SHORT
                 and take_profit >= entry_price
             ):
-                raise serializers.ValidationError({
-                    'take_profit': (
-                        'For a short trade, take profit '
-                        'should be below entry price.'
-                    )
-                })
+                raise serializers.ValidationError(
+                    {
+                        "take_profit":
+                            "For a SHORT trade, take profit must be below the entry price."
+                    }
+                )
+
 
         return attrs
-
 
 class JournalEntrySerializer(serializers.ModelSerializer):
 

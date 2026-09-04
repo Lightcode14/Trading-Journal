@@ -27,6 +27,12 @@ class TradingAccountSerializer(serializers.ModelSerializer):
 class TradeSerializer(
     serializers.ModelSerializer
 ):
+    external_trade_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
     strategy = serializers.PrimaryKeyRelatedField(
         queryset=Strategy.objects.all(),
         required=False,
@@ -67,6 +73,8 @@ class TradeSerializer(
             "created_at",
             "updated_at",
         )
+
+        validators = []
 
 
     # =========================================
@@ -186,19 +194,19 @@ class TradeSerializer(
 
 
     # =========================================
-    # COMPLETE TRADE VALIDATION
+    # FULL TRADE VALIDATION
     # =========================================
 
     def validate(
         self,
         attrs,
     ):
-        # This handles PATCH correctly.
-        # If a field is not included in attrs,
-        # use the existing trade value.
-
         instance = self.instance
 
+
+        # =====================================
+        # EXISTING / NEW VALUES
+        # =====================================
 
         direction = attrs.get(
             "direction",
@@ -272,6 +280,33 @@ class TradeSerializer(
             ),
         )
 
+        external_trade_id = attrs.get(
+            "external_trade_id",
+            getattr(
+                instance,
+                "external_trade_id",
+                "",
+            ),
+        )
+
+        account = attrs.get(
+            "account",
+            getattr(
+                instance,
+                "account",
+                None,
+            ),
+        )
+
+        source = attrs.get(
+            "source",
+            getattr(
+                instance,
+                "source",
+                Trade.Source.MANUAL,
+            ),
+        )
+
 
         # =====================================
         # CLOSED TRADE REQUIREMENTS
@@ -297,7 +332,7 @@ class TradeSerializer(
 
 
         # =====================================
-        # EXIT TIME MUST FOLLOW ENTRY TIME
+        # EXIT TIME VALIDATION
         # =====================================
 
         if (
@@ -314,7 +349,7 @@ class TradeSerializer(
 
 
         # =====================================
-        # STOP LOSS DIRECTION VALIDATION
+        # STOP LOSS VALIDATION
         # =====================================
 
         if (
@@ -333,7 +368,6 @@ class TradeSerializer(
                     }
                 )
 
-
             if (
                 direction == Trade.Direction.SHORT
                 and stop_loss <= entry_price
@@ -347,7 +381,7 @@ class TradeSerializer(
 
 
         # =====================================
-        # TAKE PROFIT DIRECTION VALIDATION
+        # TAKE PROFIT VALIDATION
         # =====================================
 
         if (
@@ -366,7 +400,6 @@ class TradeSerializer(
                     }
                 )
 
-
             if (
                 direction == Trade.Direction.SHORT
                 and take_profit >= entry_price
@@ -375,6 +408,39 @@ class TradeSerializer(
                     {
                         "take_profit":
                             "For a SHORT trade, take profit must be below the entry price."
+                    }
+                )
+
+
+        # =====================================
+        # EXTERNAL ID DUPLICATE PROTECTION
+        # =====================================
+
+        if (
+            external_trade_id
+            and account
+        ):
+            duplicate_query = (
+                Trade.objects.filter(
+                    account=account,
+                    source=source,
+                    external_trade_id=
+                        external_trade_id,
+                )
+            )
+
+            if instance:
+                duplicate_query = (
+                    duplicate_query.exclude(
+                        pk=instance.pk
+                    )
+                )
+
+            if duplicate_query.exists():
+                raise serializers.ValidationError(
+                    {
+                        "external_trade_id":
+                            "A trade with this external ID already exists for this account and source."
                     }
                 )
 
@@ -464,11 +530,9 @@ class GoalSerializer(
             "account",
             "period",
             "status",
-
             "current",
             "progress",
             "progress_status",
-
             "created_at",
             "updated_at",
         )
@@ -483,38 +547,86 @@ class GoalSerializer(
         )
 
 
+    # =========================================
+    # ACCOUNT OWNERSHIP
+    # =========================================
+
+    def validate_account(
+        self,
+        account,
+    ):
+        if account is None:
+            return account
+
+        request = self.context.get(
+            "request"
+        )
+
+        if (
+            request
+            and account.user != request.user
+        ):
+            raise serializers.ValidationError(
+                "You cannot use another user's trading account."
+            )
+
+        return account
+
+
+    # =========================================
+    # TARGET VALIDATION
+    # =========================================
+
+    def validate_target(
+        self,
+        value,
+    ):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Target must be greater than zero."
+            )
+
+        return value
+
+
+    # =========================================
+    # CURRENT VALUE
+    # =========================================
+
     def get_current(
         self,
         obj,
     ):
-        value = (
-            calculate_goal_current(
-                obj
-            )
+        value = calculate_goal_current(
+            obj
         )
 
         return float(value)
 
+
+    # =========================================
+    # PROGRESS
+    # =========================================
 
     def get_progress(
         self,
         obj,
     ):
-        value = (
-            calculate_goal_progress(
-                obj
-            )
+        value = calculate_goal_progress(
+            obj
         )
 
         return float(value)
 
 
+    # =========================================
+    # PROGRESS STATUS
+    # =========================================
+
     def get_progress_status(
         self,
         obj,
     ):
-        return (
-            calculate_goal_progress_status(
-                obj
-            )
+        return calculate_goal_progress_status(
+            obj
         )

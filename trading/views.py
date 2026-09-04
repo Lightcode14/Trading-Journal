@@ -20,6 +20,7 @@ from trading.services.goals import (
     calculate_goal_progress_status,
     sync_goal_status,
 )
+import secrets
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from datetime import timedelta, datetime
@@ -74,18 +75,16 @@ class TradingAccountViewSet(
     # USER-OWNED ACCOUNTS ONLY
     # =========================================
 
-    def get_queryset(
-        self
-    ):
-        return (
-            TradingAccount
-            .objects
-            .filter(
-                user=self.request.user
-            )
+    def get_queryset(self):
+     return (
+        TradingAccount.objects
+        .filter(
+            user=self.request.user
         )
-
-
+        .order_by(
+            "-created_at"
+        )
+    ) 
     # =========================================
     # CREATE ACCOUNT
     # =========================================
@@ -737,9 +736,15 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return JournalEntry.objects.filter(
+     return (
+        JournalEntry.objects
+        .filter(
             trade__user=self.request.user
         )
+        .order_by(
+            "-created_at"
+        )
+    )
     def perform_create(self, serializer):
      trade = serializer.validated_data['trade']
 
@@ -782,10 +787,15 @@ class StrategyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Strategy.objects.filter(
+     return (
+        Strategy.objects
+        .filter(
             user=self.request.user
         )
-
+        .order_by(
+            "-created_at"
+        )
+    )
     def perform_create(self, serializer):
         serializer.save(
             user=self.request.user

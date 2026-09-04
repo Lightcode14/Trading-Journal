@@ -45,7 +45,7 @@ urlpatterns = [
              name='direction-statistics'),
     ## HAVENT TESTED THE FEATURES BELOW
     path('analytics/strategies/',StrategyStatisticsView.as_view(),
-                 name='direction-statistics'),
+        name='strategy-statistics'),
     path( 'analytics/time/',TimeStatisticsView.as_view(),
          name='time-statistics'),
     path('analytics/equity/',EquityStatisticsView.as_view(),

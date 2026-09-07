@@ -19,10 +19,9 @@ class TradingAccount(models.Model):
         max_length=100,
         blank=True,
     )
-
-    account_identifier = models.CharField(
+    account_number = models.CharField(
         max_length=100,
-        blank=True,
+        blank=True
     )
 
     currency = models.CharField(

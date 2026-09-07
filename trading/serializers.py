@@ -8,22 +8,23 @@ from trading.services.goals import (
 class TradingAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = TradingAccount
+
         fields = [
-            'id',
-            'name',
-            'broker',
-            'account_identifier',
-            'currency',
-            'starting_balance',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = [
-            'id',
-            'created_at',
-            'updated_at',
+            "id",
+            "name",
+            "broker",
+            "account_number",
+            "currency",
+            "starting_balance",
+            "created_at",
+            "updated_at",
         ]
 
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
 class TradeSerializer(
     serializers.ModelSerializer
 ):

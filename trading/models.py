@@ -22,6 +22,7 @@ class TradingAccount(models.Model):
     account_number = models.CharField(
         max_length=100,
         blank=True
+    
     )
 
     currency = models.CharField(

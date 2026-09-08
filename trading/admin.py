@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Trade, TradingAccount,Goal
+from .models import Trade, TradingAccount,Goal,JournalEntry
 
 
 @admin.register(TradingAccount)
@@ -59,3 +59,5 @@ class GoalAdmin(admin.ModelAdmin):
         "title",
         "user__email",
     )
+
+admin.site.register(JournalEntry)

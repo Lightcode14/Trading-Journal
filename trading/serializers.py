@@ -4,7 +4,9 @@ from trading.services.goals import (
     calculate_goal_current,
     calculate_goal_progress,
     calculate_goal_progress_status,
+
 )
+from decimal import Decimal, ROUND_HALF_UP
 class TradingAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = TradingAccount
@@ -25,6 +27,7 @@ class TradingAccountSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
 class TradeSerializer(
     serializers.ModelSerializer
 ):
@@ -71,6 +74,7 @@ class TradeSerializer(
         read_only_fields = (
             "id",
             "user",
+            "profit_loss",
             "created_at",
             "updated_at",
         )
@@ -263,6 +267,24 @@ class TradeSerializer(
             ),
         )
 
+        position_size = attrs.get(
+            "position_size",
+            getattr(
+                instance,
+                "position_size",
+                None,
+            ),
+        )
+
+        fees = attrs.get(
+            "fees",
+            getattr(
+                instance,
+                "fees",
+                Decimal("0"),
+            ),
+        )
+
         entry_time = attrs.get(
             "entry_time",
             getattr(
@@ -447,6 +469,164 @@ class TradeSerializer(
 
 
         return attrs
+
+
+    # =========================================
+    # PROFIT / LOSS CALCULATION
+    # =========================================
+
+    def calculate_profit_loss(
+        self,
+        validated_data,
+        instance=None,
+    ):
+        status = validated_data.get(
+            "status",
+            getattr(
+                instance,
+                "status",
+                Trade.Status.CLOSED,
+            ),
+        )
+
+        if status != Trade.Status.CLOSED:
+            return None
+
+
+        direction = validated_data.get(
+            "direction",
+            getattr(
+                instance,
+                "direction",
+                None,
+            ),
+        )
+
+        entry_price = validated_data.get(
+            "entry_price",
+            getattr(
+                instance,
+                "entry_price",
+                None,
+            ),
+        )
+
+        exit_price = validated_data.get(
+            "exit_price",
+            getattr(
+                instance,
+                "exit_price",
+                None,
+            ),
+        )
+
+        position_size = validated_data.get(
+            "position_size",
+            getattr(
+                instance,
+                "position_size",
+                None,
+            ),
+        )
+
+        fees = validated_data.get(
+            "fees",
+            getattr(
+                instance,
+                "fees",
+                Decimal("0"),
+            ),
+        )
+
+
+        if (
+            entry_price is None
+            or exit_price is None
+            or position_size is None
+        ):
+            return None
+
+
+        fees = fees or Decimal("0")
+
+
+        if direction == Trade.Direction.LONG:
+
+            profit_loss = (
+                (
+                    exit_price -
+                    entry_price
+                )
+                *
+                position_size
+            ) - fees
+
+        elif direction == Trade.Direction.SHORT:
+
+            profit_loss = (
+                (
+                    entry_price -
+                    exit_price
+                )
+                *
+                position_size
+            ) - fees
+
+        else:
+            return None
+
+
+        return profit_loss.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+
+    # =========================================
+    # CREATE
+    # =========================================
+
+    def create(
+        self,
+        validated_data,
+    ):
+        validated_data[
+            "profit_loss"
+        ] = self.calculate_profit_loss(
+            validated_data
+        )
+
+        return super().create(
+            validated_data
+        )
+
+
+    # =========================================
+    # UPDATE
+    # =========================================
+
+    def update(
+        self,
+        instance,
+        validated_data,
+    ):
+        calculated_profit_loss = (
+            self.calculate_profit_loss(
+                validated_data,
+                instance,
+            )
+        )
+
+
+        validated_data[
+            "profit_loss"
+        ] = calculated_profit_loss
+
+
+        return super().update(
+            instance,
+            validated_data,
+        )
 
 class JournalEntrySerializer(serializers.ModelSerializer):
 

@@ -1,57 +1,34 @@
 from django.shortcuts import render
-from rest_framework import viewsets
-from rest_framework.decorators import action
-from .serializers import (
-    TradingAccountSerializer,TradeSerializer,
-    JournalEntrySerializer,StrategySerializer,GoalSerializer)
-from .models import TradingAccount,Trade,JournalEntry,Strategy,Goal
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
-from .services.analytics import(
-    get_dashboard_statistics,
-    get_time_statistics,
-    get_trade_statistics,
-    get_symbol_statistics,
-    get_direction_statistics,
-    get_strategy_statistics,
-    get_equity_statistics) 
-from trading.services.goals import (
-    calculate_goal_progress,
-    calculate_goal_progress_status,
-    sync_goal_status,
-)
-import secrets
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from datetime import timedelta, datetime
-from django.utils import timezone
-from rest_framework.decorators import action
-from rest_framework.parsers import (
-    FormParser,
-    MultiPartParser,
-)
-from rest_framework.response import Response
-from rest_framework import status
 
-from trading.models import (
-    TradingAccount,
+from rest_framework import (
+    viewsets,
+    status,
 )
 
-from trading.services.trade_import import (
-    import_trade_csv,
-    import_trade_json
+from rest_framework.decorators import (
+    action,
 )
+
+from rest_framework.views import (
+    APIView,
+)
+
+from rest_framework.response import (
+    Response,
+)
+
 from rest_framework.permissions import (
+    IsAuthenticated,
     AllowAny,
 )
 
-from trading.services.tradingview import (
-    process_tradingview_webhook,
-    get_tradingview_templates
+from rest_framework.exceptions import (
+    PermissionDenied,
 )
 
-from django_filters.rest_framework import (
-    DjangoFilterBackend,
+from rest_framework.parsers import (
+    FormParser,
+    MultiPartParser,
 )
 
 from rest_framework.filters import (
@@ -59,9 +36,124 @@ from rest_framework.filters import (
     SearchFilter,
 )
 
+from django_filters.rest_framework import (
+    DjangoFilterBackend,
+)
+
+from datetime import (
+    timedelta,
+    datetime,
+)
+
+from django.utils import timezone
+
+import secrets
+
+
+from .serializers import (
+    TradingAccountSerializer,
+    TradeSerializer,
+    JournalEntrySerializer,
+    StrategySerializer,
+    GoalSerializer,
+)
+
+from .models import (
+    TradingAccount,
+    Trade,
+    JournalEntry,
+    Strategy,
+    Goal,
+)
+
+from .services.analytics import (
+    get_dashboard_statistics,
+    get_time_statistics,
+    get_trade_statistics,
+    get_symbol_statistics,
+    get_direction_statistics,
+    get_strategy_statistics,
+    get_equity_statistics,
+)
+
+from trading.services.goals import (
+    calculate_goal_progress,
+    calculate_goal_progress_status,
+    sync_goal_status,
+)
+
+from trading.services.trade_import import (
+    import_trade_csv,
+    import_trade_json,
+)
+
+from trading.services.tradingview import (
+    process_tradingview_webhook,
+    get_tradingview_templates,
+)
+
+
+# ============================================================
+# ANALYTICS ACCOUNT HELPER
+# ============================================================
+
+def get_analytics_account_id(
+    request
+):
+    account_id = (
+        request.query_params.get(
+            "account"
+        )
+    )
+
+    if account_id is None:
+        return None, None
+
+    try:
+        account_id = int(
+            account_id
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None, Response(
+            {
+                "error":
+                    "account must be a valid ID."
+            },
+            status=
+                status.HTTP_400_BAD_REQUEST,
+        )
+
+    account_exists = (
+        TradingAccount.objects.filter(
+            id=account_id,
+            user=request.user
+        ).exists()
+    )
+
+    if not account_exists:
+        return None, Response(
+            {
+                "error":
+                    "Trading account not found."
+            },
+            status=
+                status.HTTP_404_NOT_FOUND,
+        )
+
+    return account_id, None
+
+
+# ============================================================
+# TRADING ACCOUNTS
+# ============================================================
+
 class TradingAccountViewSet(
     viewsets.ModelViewSet
 ):
+
     serializer_class = (
         TradingAccountSerializer
     )
@@ -70,37 +162,30 @@ class TradingAccountViewSet(
         IsAuthenticated
     ]
 
-
-    # =========================================
-    # USER-OWNED ACCOUNTS ONLY
-    # =========================================
-
     def get_queryset(self):
-     return (
-        TradingAccount.objects
-        .filter(
-            user=self.request.user
+
+        return (
+            TradingAccount.objects
+            .filter(
+                user=self.request.user
+            )
+            .order_by(
+                "-created_at"
+            )
         )
-        .order_by(
-            "-created_at"
-        )
-    ) 
-    # =========================================
-    # CREATE ACCOUNT
-    # =========================================
 
     def perform_create(
         self,
         serializer,
     ):
+
         serializer.save(
             user=self.request.user
         )
 
-
-    # =========================================
-    # TRADINGVIEW SETTINGS
-    # =========================================
+    # --------------------------------------------------------
+    # TradingView settings
+    # --------------------------------------------------------
 
     @action(
         detail=True,
@@ -112,14 +197,10 @@ class TradingAccountViewSet(
         request,
         pk=None,
     ):
+
         account = (
             self.get_object()
         )
-
-
-        # =====================================
-        # WEBHOOK URL
-        # =====================================
 
         webhook_url = (
             request.build_absolute_uri(
@@ -130,53 +211,40 @@ class TradingAccountViewSet(
             )
         )
 
-
-        # =====================================
-        # ALERT TEMPLATES
-        # =====================================
-
         templates = (
             get_tradingview_templates(
                 account
             )
         )
 
+        return Response({
+            "account_id":
+                account.id,
 
-        # =====================================
-        # RESPONSE
-        # =====================================
+            "account_name":
+                account.name,
 
-        return Response(
-            {
-                "account_id":
-                    account.id,
+            "enabled":
+                account.webhook_enabled,
 
-                "account_name":
-                    account.name,
+            "has_secret":
+                bool(
+                    account.webhook_secret
+                ),
 
-                "enabled":
-                    account.webhook_enabled,
+            "webhook_secret":
+                account.webhook_secret,
 
-                "has_secret":
-                    bool(
-                        account.webhook_secret
-                    ),
+            "webhook_url":
+                webhook_url,
 
-                "webhook_secret":
-                    account.webhook_secret,
+            "templates":
+                templates,
+        })
 
-                "webhook_url":
-                    webhook_url,
-
-                "templates":
-                    templates,
-            }
-        )
-
-
-    # =========================================
-    # REGENERATE WEBHOOK SECRET
-    # =========================================
+    # --------------------------------------------------------
+    # Regenerate TradingView secret
+    # --------------------------------------------------------
 
     @action(
         detail=True,
@@ -191,17 +259,16 @@ class TradingAccountViewSet(
         request,
         pk=None,
     ):
+
         account = (
             self.get_object()
         )
-
 
         account.webhook_secret = (
             secrets.token_urlsafe(
                 32
             )
         )
-
 
         account.save(
             update_fields=[
@@ -210,9 +277,6 @@ class TradingAccountViewSet(
             ]
         )
 
-
-        # Build the new URL immediately
-        # because the secret just changed.
         webhook_url = (
             request.build_absolute_uri(
                 f"/api/trading/"
@@ -222,27 +286,23 @@ class TradingAccountViewSet(
             )
         )
 
+        return Response({
+            "success":
+                True,
 
-        return Response(
-            {
-                "success":
-                    True,
+            "account_id":
+                account.id,
 
-                "account_id":
-                    account.id,
+            "webhook_secret":
+                account.webhook_secret,
 
-                "webhook_secret":
-                    account.webhook_secret,
+            "webhook_url":
+                webhook_url,
+        })
 
-                "webhook_url":
-                    webhook_url,
-            }
-        )
-
-
-    # =========================================
-    # ENABLE / DISABLE WEBHOOK
-    # =========================================
+    # --------------------------------------------------------
+    # Enable / disable TradingView
+    # --------------------------------------------------------
 
     @action(
         detail=True,
@@ -256,10 +316,10 @@ class TradingAccountViewSet(
         request,
         pk=None,
     ):
+
         account = (
             self.get_object()
         )
-
 
         enabled = (
             request.data.get(
@@ -267,11 +327,11 @@ class TradingAccountViewSet(
             )
         )
 
-
         if not isinstance(
             enabled,
             bool,
         ):
+
             return Response(
                 {
                     "detail":
@@ -281,11 +341,9 @@ class TradingAccountViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         account.webhook_enabled = (
             enabled
         )
-
 
         account.save(
             update_fields=[
@@ -294,23 +352,29 @@ class TradingAccountViewSet(
             ]
         )
 
+        return Response({
+            "success":
+                True,
 
-        return Response(
-            {
-                "success":
-                    True,
+            "account_id":
+                account.id,
 
-                "account_id":
-                    account.id,
+            "enabled":
+                account.webhook_enabled,
+        })
 
-                "enabled":
-                    account.webhook_enabled,
-            }
-        )
+
+# ============================================================
+# TRADES
+# ============================================================
+
 class TradeViewSet(
     viewsets.ModelViewSet
 ):
-    serializer_class = TradeSerializer
+
+    serializer_class = (
+        TradeSerializer
+    )
 
     permission_classes = [
         IsAuthenticated
@@ -348,13 +412,9 @@ class TradeViewSet(
     ordering = [
         "-entry_time"
     ]
-    # =========================================
-    # QUERYSET
-    # =========================================
 
-    def get_queryset(
-        self
-    ):
+    def get_queryset(self):
+
         return (
             Trade.objects
             .filter(
@@ -366,15 +426,11 @@ class TradeViewSet(
             )
         )
 
-
-    # =========================================
-    # CREATE TRADE
-    # =========================================
-
     def perform_create(
         self,
         serializer,
     ):
+
         account = (
             serializer
             .validated_data[
@@ -382,24 +438,22 @@ class TradeViewSet(
             ]
         )
 
-
         if (
-            account.user !=
-            self.request.user
+            account.user
+            != self.request.user
         ):
             raise PermissionDenied(
-                "You do not have permission to use this trading account."
+                "You do not have permission "
+                "to use this trading account."
             )
-
 
         serializer.save(
             user=self.request.user
         )
 
-
-    # =========================================
-    # CSV IMPORT
-    # =========================================
+    # --------------------------------------------------------
+    # CSV import
+    # --------------------------------------------------------
 
     @action(
         detail=False,
@@ -414,6 +468,7 @@ class TradeViewSet(
         self,
         request,
     ):
+
         uploaded_file = (
             request.FILES.get(
                 "file"
@@ -426,8 +481,8 @@ class TradeViewSet(
             )
         )
 
-
         if not uploaded_file:
+
             return Response(
                 {
                     "detail":
@@ -437,8 +492,8 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         if not account_id:
+
             return Response(
                 {
                     "detail":
@@ -448,15 +503,13 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         if (
             not uploaded_file
             .name
             .lower()
-            .endswith(
-                ".csv"
-            )
+            .endswith(".csv")
         ):
+
             return Response(
                 {
                     "detail":
@@ -466,8 +519,8 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         try:
+
             account = (
                 TradingAccount.objects.get(
                     id=account_id,
@@ -476,6 +529,7 @@ class TradeViewSet(
             )
 
         except TradingAccount.DoesNotExist:
+
             return Response(
                 {
                     "detail":
@@ -485,20 +539,23 @@ class TradeViewSet(
                     status.HTTP_404_NOT_FOUND,
             )
 
-
         try:
-            result = import_trade_csv(
-                uploaded_file=
-                    uploaded_file,
 
-                user=
-                    request.user,
+            result = (
+                import_trade_csv(
+                    uploaded_file=
+                        uploaded_file,
 
-                account=
-                    account,
+                    user=
+                        request.user,
+
+                    account=
+                        account,
+                )
             )
 
         except ValueError as exc:
+
             return Response(
                 {
                     "detail":
@@ -508,14 +565,13 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         if not result["success"]:
+
             return Response(
                 result,
                 status=
                     status.HTTP_400_BAD_REQUEST,
             )
-
 
         return Response(
             result,
@@ -523,10 +579,9 @@ class TradeViewSet(
                 status.HTTP_201_CREATED,
         )
 
-
-    # =========================================
-    # JSON IMPORT
-    # =========================================
+    # --------------------------------------------------------
+    # JSON import
+    # --------------------------------------------------------
 
     @action(
         detail=False,
@@ -537,6 +592,7 @@ class TradeViewSet(
         self,
         request,
     ):
+
         account_id = (
             request.data.get(
                 "account"
@@ -549,8 +605,8 @@ class TradeViewSet(
             )
         )
 
-
         if not account_id:
+
             return Response(
                 {
                     "detail":
@@ -560,8 +616,8 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         if trades_data is None:
+
             return Response(
                 {
                     "detail":
@@ -571,8 +627,8 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         try:
+
             account = (
                 TradingAccount.objects.get(
                     id=account_id,
@@ -581,6 +637,7 @@ class TradeViewSet(
             )
 
         except TradingAccount.DoesNotExist:
+
             return Response(
                 {
                     "detail":
@@ -590,20 +647,23 @@ class TradeViewSet(
                     status.HTTP_404_NOT_FOUND,
             )
 
-
         try:
-            result = import_trade_json(
-                trades_data=
-                    trades_data,
 
-                user=
-                    request.user,
+            result = (
+                import_trade_json(
+                    trades_data=
+                        trades_data,
 
-                account=
-                    account,
+                    user=
+                        request.user,
+
+                    account=
+                        account,
+                )
             )
 
         except ValueError as exc:
+
             return Response(
                 {
                     "detail":
@@ -613,14 +673,13 @@ class TradeViewSet(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
         if not result["success"]:
+
             return Response(
                 result,
                 status=
                     status.HTTP_400_BAD_REQUEST,
             )
-
 
         return Response(
             result,
@@ -628,24 +687,27 @@ class TradeViewSet(
                 status.HTTP_201_CREATED,
         )
 
+
+# ============================================================
+# TRADINGVIEW WEBHOOK
+# ============================================================
+
 class TradingViewWebhookView(
     APIView
 ):
+
     permission_classes = [
         AllowAny
     ]
-
 
     def post(
         self,
         request,
         secret,
     ):
-        # =====================================
-        # FIND ENABLED TRADING ACCOUNT
-        # =====================================
 
         try:
+
             account = (
                 TradingAccount
                 .objects
@@ -653,35 +715,40 @@ class TradingViewWebhookView(
                     "user"
                 )
                 .get(
-                    webhook_secret=secret,
-                    webhook_enabled=True,
+                    webhook_secret=
+                        secret,
+
+                    webhook_enabled=
+                        True,
                 )
             )
 
         except TradingAccount.DoesNotExist:
+
             return Response(
                 {
                     "detail":
-                        "Invalid webhook secret or integration is disabled."
+                        "Invalid webhook secret "
+                        "or integration is disabled."
                 },
                 status=
                     status.HTTP_401_UNAUTHORIZED,
             )
 
-
-        # =====================================
-        # PROCESS TRADINGVIEW EVENT
-        # =====================================
-
         try:
+
             result = (
                 process_tradingview_webhook(
-                    account=account,
-                    payload=request.data,
+                    account=
+                        account,
+
+                    payload=
+                        request.data,
                 )
             )
 
         except ValueError as exc:
+
             return Response(
                 {
                     "detail":
@@ -691,15 +758,7 @@ class TradingViewWebhookView(
                     status.HTTP_400_BAD_REQUEST,
             )
 
-
-        # =====================================
-        # RESULT
-        # =====================================
-
-        trade = (
-            result["trade"]
-        )
-
+        trade = result["trade"]
 
         return Response(
             {
@@ -724,512 +783,922 @@ class TradingViewWebhookView(
                 "source":
                     trade.source,
             },
-
             status=(
                 status.HTTP_201_CREATED
                 if result["created"]
                 else status.HTTP_200_OK
             ),
         )
-class JournalEntryViewSet(viewsets.ModelViewSet):
-    serializer_class = JournalEntrySerializer
-    permission_classes = [IsAuthenticated]
+
+
+# ============================================================
+# JOURNAL
+# ============================================================
+
+class JournalEntryViewSet(
+    viewsets.ModelViewSet
+):
+
+    serializer_class = (
+        JournalEntrySerializer
+    )
+
+    permission_classes = [
+        IsAuthenticated
+    ]
 
     def get_queryset(self):
-     return (
-        JournalEntry.objects
-        .filter(
-            trade__user=self.request.user
-        )
-        .order_by(
-            "-created_at"
-        )
-    )
-    def perform_create(self, serializer):
-     trade = serializer.validated_data['trade']
 
-     if trade.user != self.request.user:
-        raise PermissionDenied(
-            'You do not have permission to journal this trade.'
+        return (
+            JournalEntry.objects
+            .filter(
+                trade__user=
+                    self.request.user
+            )
+            .order_by(
+                "-created_at"
+            )
         )
 
-     serializer.save()
+    def perform_create(
+        self,
+        serializer,
+    ):
 
-class TradeStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        statistics = get_trade_statistics(request.user)
-
-        return Response(statistics)
-
-class SymbolStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        statistics = get_symbol_statistics(request.user)
-
-        return Response(statistics)
-
-class DirectionStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        statistics = get_direction_statistics(
-            request.user
+        trade = (
+            serializer
+            .validated_data[
+                "trade"
+            ]
         )
 
-        return Response(statistics)
+        if (
+            trade.user
+            != self.request.user
+        ):
 
-
-class StrategyViewSet(viewsets.ModelViewSet):
-    serializer_class = StrategySerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-     return (
-        Strategy.objects
-        .filter(
-            user=self.request.user
-        )
-        .order_by(
-            "-created_at"
-        )
-    )
-    def perform_create(self, serializer):
-        serializer.save(
-            user=self.request.user
-        )
-class StrategyStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        statistics = get_strategy_statistics(
-            request.user
-        )
-
-        return Response(statistics)
-
-class TimeStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        period = request.query_params.get('period')
-        start_param = request.query_params.get('start')
-        end_param = request.query_params.get('end')
-
-        now = timezone.now()
-
-        # -------------------------
-        # CUSTOM DATE RANGE
-        # -------------------------
-        if start_param or end_param:
-
-            if not start_param or not end_param:
-                return Response(
-                    {
-                        'error': (
-                            'Both start and end dates '
-                            'are required.'
-                        )
-                    },
-                    status=400
-                )
-
-            try:
-                start_date = datetime.strptime(
-                    start_param,
-                    '%Y-%m-%d'
-                )
-
-                end_date = datetime.strptime(
-                    end_param,
-                    '%Y-%m-%d'
-                )
-
-            except ValueError:
-                return Response(
-                    {
-                        'error': (
-                            'Invalid date format. '
-                            'Use YYYY-MM-DD.'
-                        )
-                    },
-                    status=400
-                )
-
-            # Make dates timezone-aware
-            start_date = timezone.make_aware(
-                start_date
+            raise PermissionDenied(
+                "You do not have permission "
+                "to journal this trade."
             )
 
-            end_date = timezone.make_aware(
-                end_date
-            ) + timedelta(days=1)
+        serializer.save()
 
-            if start_date >= end_date:
-                return Response(
-                    {
-                        'error': (
-                            'Start date must be before '
-                            'end date.'
-                        )
-                    },
-                    status=400
-                )
 
-            selected_period = 'custom'
+# ============================================================
+# OVERALL TRADE STATISTICS
+# ============================================================
 
-        # -------------------------
-        # PREDEFINED PERIODS
-        # -------------------------
-        else:
+class TradeStatisticsView(
+    APIView
+):
 
-            if period == 'today':
+    permission_classes = [
+        IsAuthenticated
+    ]
 
-                start_date = now.replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
+    def get(
+        self,
+        request,
+    ):
 
-                end_date = start_date + timedelta(days=1)
+        account_id, error = (
+            get_analytics_account_id(
+                request
+            )
+        )
 
-            elif period == 'week':
+        if error:
+            return error
 
-                start_date = now - timedelta(
-                    days=now.weekday()
-                )
-
-                start_date = start_date.replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-
-                end_date = start_date + timedelta(days=7)
-
-            elif period == 'month':
-
-                start_date = now.replace(
-                    day=1,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-
-                if start_date.month == 12:
-
-                    end_date = start_date.replace(
-                        year=start_date.year + 1,
-                        month=1
-                    )
-
-                else:
-
-                    end_date = start_date.replace(
-                        month=start_date.month + 1
-                    )
-
-            elif period == 'year':
-
-                start_date = now.replace(
-                    month=1,
-                    day=1,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-
-                end_date = start_date.replace(
-                    year=start_date.year + 1
-                )
-
-            else:
-
-                return Response(
-                    {
-                        'error': (
-                            'Provide either a valid period '
-                            '(today, week, month, year) '
-                            'or a custom start and end date.'
-                        )
-                    },
-                    status=400
-                )
-
-            selected_period = period
-
-        # -------------------------
-        # CALCULATE STATISTICS
-        # -------------------------
-
-        statistics = get_time_statistics(
-            request.user,
-            start_date,
-            end_date
+        statistics = (
+            get_trade_statistics(
+                request.user,
+                account_id
+            )
         )
 
         return Response(
-            {
-                'period': selected_period,
-                'start_date': start_date,
-                'end_date': end_date,
-                'statistics': statistics
-            }
+            statistics
         )
 
-class EquityStatisticsView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+# ============================================================
+# SYMBOL STATISTICS
+# ============================================================
 
-        account_id = request.query_params.get('account')
+class SymbolStatisticsView(
+    APIView
+):
 
-        if not account_id:
-            return Response(
-                {
-                    'error': 'account parameter is required.'
-                },
-                status=400
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id, error = (
+            get_analytics_account_id(
+                request
             )
+        )
 
-        try:
-            account_id = int(account_id)
+        if error:
+            return error
 
-        except ValueError:
-            return Response(
-                {
-                    'error': 'account must be a valid ID.'
-                },
-                status=400
+        statistics = (
+            get_symbol_statistics(
+                request.user,
+                account_id
             )
+        )
 
-        period = request.query_params.get('period')
+        return Response(
+            statistics
+        )
 
-        start_param = request.query_params.get('start')
 
-        end_param = request.query_params.get('end')
+# ============================================================
+# DIRECTION STATISTICS
+# ============================================================
+
+class DirectionStatisticsView(
+    APIView
+):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id, error = (
+            get_analytics_account_id(
+                request
+            )
+        )
+
+        if error:
+            return error
+
+        statistics = (
+            get_direction_statistics(
+                request.user,
+                account_id
+            )
+        )
+
+        return Response(
+            statistics
+        )
+
+
+# ============================================================
+# STRATEGIES
+# ============================================================
+
+class StrategyViewSet(
+    viewsets.ModelViewSet
+):
+
+    serializer_class = (
+        StrategySerializer
+    )
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get_queryset(self):
+
+        return (
+            Strategy.objects
+            .filter(
+                user=self.request.user
+            )
+            .order_by(
+                "-created_at"
+            )
+        )
+
+    def perform_create(
+        self,
+        serializer,
+    ):
+
+        serializer.save(
+            user=self.request.user
+        )
+
+
+# ============================================================
+# STRATEGY STATISTICS
+# ============================================================
+
+class StrategyStatisticsView(
+    APIView
+):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id, error = (
+            get_analytics_account_id(
+                request
+            )
+        )
+
+        if error:
+            return error
+
+        statistics = (
+            get_strategy_statistics(
+                request.user,
+                account_id
+            )
+        )
+
+        return Response(
+            statistics
+        )
+
+
+# ============================================================
+# TIME STATISTICS
+# ============================================================
+
+class TimeStatisticsView(
+    APIView
+):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id, error = (
+            get_analytics_account_id(
+                request
+            )
+        )
+
+        if error:
+            return error
+
+        period = (
+            request.query_params.get(
+                "period"
+            )
+        )
+
+        start_param = (
+            request.query_params.get(
+                "start"
+            )
+        )
+
+        end_param = (
+            request.query_params.get(
+                "end"
+            )
+        )
 
         now = timezone.now()
 
-        # ====================================================
-        # CUSTOM DATE RANGE
-        # ====================================================
+        # ----------------------------------------------------
+        # Custom date range
+        # ----------------------------------------------------
 
-        if start_param or end_param:
+        if (
+            start_param
+            or end_param
+        ):
 
-            if not start_param or not end_param:
+            if (
+                not start_param
+                or not end_param
+            ):
+
                 return Response(
                     {
-                        'error': (
-                            'Both start and end dates '
-                            'are required.'
-                        )
+                        "error":
+                            "Both start and end dates "
+                            "are required."
                     },
-                    status=400
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
                 )
 
             try:
 
-                start_date = datetime.strptime(
-                    start_param,
-                    '%Y-%m-%d'
+                start_date = (
+                    datetime.strptime(
+                        start_param,
+                        "%Y-%m-%d"
+                    )
                 )
 
-                end_date = datetime.strptime(
-                    end_param,
-                    '%Y-%m-%d'
+                end_date = (
+                    datetime.strptime(
+                        end_param,
+                        "%Y-%m-%d"
+                    )
                 )
 
             except ValueError:
 
                 return Response(
                     {
-                        'error': (
-                            'Invalid date format. '
-                            'Use YYYY-MM-DD.'
-                        )
+                        "error":
+                            "Invalid date format. "
+                            "Use YYYY-MM-DD."
                     },
-                    status=400
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
                 )
 
-            start_date = timezone.make_aware(
-                start_date
+            start_date = (
+                timezone.make_aware(
+                    start_date
+                )
             )
 
-            end_date = timezone.make_aware(
-                end_date
-            ) + timedelta(days=1)
+            end_date = (
+                timezone.make_aware(
+                    end_date
+                )
+                + timedelta(days=1)
+            )
 
-            if start_date >= end_date:
+            if (
+                start_date
+                >= end_date
+            ):
 
                 return Response(
                     {
-                        'error': (
-                            'Start date must be before '
-                            'end date.'
-                        )
+                        "error":
+                            "Start date must be "
+                            "before end date."
                     },
-                    status=400
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
                 )
 
-            selected_period = 'custom'
+            selected_period = (
+                "custom"
+            )
 
-        # ====================================================
-        # PREDEFINED PERIOD
-        # ====================================================
+        # ----------------------------------------------------
+        # Predefined periods
+        # ----------------------------------------------------
 
-        elif period:
+        else:
 
-            if period == 'today':
-
-                start_date = now.replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
-                )
-
-                end_date = start_date + timedelta(days=1)
-
-            elif period == 'week':
+            if period == "today":
 
                 start_date = (
-                    now -
-                    timedelta(days=now.weekday())
-                )
-
-                start_date = start_date.replace(
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
+                    now.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
                 )
 
                 end_date = (
-                    start_date +
-                    timedelta(days=7)
+                    start_date
+                    + timedelta(days=1)
                 )
 
-            elif period == 'month':
+            elif period == "week":
 
-                start_date = now.replace(
-                    day=1,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
+                start_date = (
+                    now
+                    - timedelta(
+                        days=now.weekday()
+                    )
                 )
 
-                if start_date.month == 12:
+                start_date = (
+                    start_date.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
 
-                    end_date = start_date.replace(
-                        year=start_date.year + 1,
-                        month=1
+                end_date = (
+                    start_date
+                    + timedelta(days=7)
+                )
+
+            elif period == "month":
+
+                start_date = (
+                    now.replace(
+                        day=1,
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                if (
+                    start_date.month
+                    == 12
+                ):
+
+                    end_date = (
+                        start_date.replace(
+                            year=
+                                start_date.year
+                                + 1,
+
+                            month=1,
+                        )
                     )
 
                 else:
 
-                    end_date = start_date.replace(
-                        month=start_date.month + 1
+                    end_date = (
+                        start_date.replace(
+                            month=
+                                start_date.month
+                                + 1
+                        )
                     )
 
-            elif period == 'year':
+            elif period == "year":
 
-                start_date = now.replace(
-                    month=1,
-                    day=1,
-                    hour=0,
-                    minute=0,
-                    second=0,
-                    microsecond=0
+                start_date = (
+                    now.replace(
+                        month=1,
+                        day=1,
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
                 )
 
-                end_date = start_date.replace(
-                    year=start_date.year + 1
+                end_date = (
+                    start_date.replace(
+                        year=
+                            start_date.year
+                            + 1
+                    )
                 )
 
             else:
 
                 return Response(
                     {
-                        'error': (
-                            'Invalid period. Use '
-                            'today, week, month, or year.'
-                        )
+                        "error":
+                            "Provide either a valid "
+                            "period "
+                            "(today, week, month, year) "
+                            "or a custom start and end date."
                     },
-                    status=400
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
                 )
 
-            selected_period = period
+            selected_period = (
+                period
+            )
 
-        # ====================================================
-        # NO FILTER
-        # ====================================================
+        statistics = (
+            get_time_statistics(
+                request.user,
+                start_date,
+                end_date,
+                account_id
+            )
+        )
+
+        return Response({
+            "account":
+                account_id,
+
+            "period":
+                selected_period,
+
+            "start_date":
+                start_date,
+
+            "end_date":
+                end_date,
+
+            "statistics":
+                statistics,
+        })
+
+
+# ============================================================
+# EQUITY STATISTICS
+# ============================================================
+
+class EquityStatisticsView(
+    APIView
+):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id = (
+            request.query_params.get(
+                "account"
+            )
+        )
+
+        if not account_id:
+
+            return Response(
+                {
+                    "error":
+                        "account parameter is required."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+
+            account_id = int(
+                account_id
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            return Response(
+                {
+                    "error":
+                        "account must be a valid ID."
+                },
+                status=
+                    status.HTTP_400_BAD_REQUEST,
+            )
+
+        period = (
+            request.query_params.get(
+                "period"
+            )
+        )
+
+        start_param = (
+            request.query_params.get(
+                "start"
+            )
+        )
+
+        end_param = (
+            request.query_params.get(
+                "end"
+            )
+        )
+
+        now = timezone.now()
+
+        # ----------------------------------------------------
+        # Custom date range
+        # ----------------------------------------------------
+
+        if (
+            start_param
+            or end_param
+        ):
+
+            if (
+                not start_param
+                or not end_param
+            ):
+
+                return Response(
+                    {
+                        "error":
+                            "Both start and end dates "
+                            "are required."
+                    },
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+
+                start_date = (
+                    datetime.strptime(
+                        start_param,
+                        "%Y-%m-%d"
+                    )
+                )
+
+                end_date = (
+                    datetime.strptime(
+                        end_param,
+                        "%Y-%m-%d"
+                    )
+                )
+
+            except ValueError:
+
+                return Response(
+                    {
+                        "error":
+                            "Invalid date format. "
+                            "Use YYYY-MM-DD."
+                    },
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
+                )
+
+            start_date = (
+                timezone.make_aware(
+                    start_date
+                )
+            )
+
+            end_date = (
+                timezone.make_aware(
+                    end_date
+                )
+                + timedelta(days=1)
+            )
+
+            if (
+                start_date
+                >= end_date
+            ):
+
+                return Response(
+                    {
+                        "error":
+                            "Start date must be "
+                            "before end date."
+                    },
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
+                )
+
+            selected_period = (
+                "custom"
+            )
+
+        # ----------------------------------------------------
+        # Predefined period
+        # ----------------------------------------------------
+
+        elif period:
+
+            if period == "today":
+
+                start_date = (
+                    now.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                end_date = (
+                    start_date
+                    + timedelta(days=1)
+                )
+
+            elif period == "week":
+
+                start_date = (
+                    now
+                    - timedelta(
+                        days=now.weekday()
+                    )
+                )
+
+                start_date = (
+                    start_date.replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                end_date = (
+                    start_date
+                    + timedelta(days=7)
+                )
+
+            elif period == "month":
+
+                start_date = (
+                    now.replace(
+                        day=1,
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                if (
+                    start_date.month
+                    == 12
+                ):
+
+                    end_date = (
+                        start_date.replace(
+                            year=
+                                start_date.year
+                                + 1,
+
+                            month=1,
+                        )
+                    )
+
+                else:
+
+                    end_date = (
+                        start_date.replace(
+                            month=
+                                start_date.month
+                                + 1
+                        )
+                    )
+
+            elif period == "year":
+
+                start_date = (
+                    now.replace(
+                        month=1,
+                        day=1,
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                )
+
+                end_date = (
+                    start_date.replace(
+                        year=
+                            start_date.year
+                            + 1
+                    )
+                )
+
+            else:
+
+                return Response(
+                    {
+                        "error":
+                            "Invalid period. Use "
+                            "today, week, month, or year."
+                    },
+                    status=
+                        status.HTTP_400_BAD_REQUEST,
+                )
+
+            selected_period = (
+                period
+            )
+
+        # ----------------------------------------------------
+        # All time
+        # ----------------------------------------------------
 
         else:
 
             start_date = None
             end_date = None
 
-            selected_period = 'all_time'
-
-        # ====================================================
-        # GET STATISTICS
-        # ====================================================
+            selected_period = (
+                "all_time"
+            )
 
         try:
 
-            statistics = get_equity_statistics(
-                request.user,
-                account_id,
-                start_date,
-                end_date
+            statistics = (
+                get_equity_statistics(
+                    request.user,
+                    account_id,
+                    start_date,
+                    end_date
+                )
             )
 
         except TradingAccount.DoesNotExist:
 
             return Response(
                 {
-                    'error': 'Trading account not found.'
+                    "error":
+                        "Trading account not found."
                 },
-                status=404
+                status=
+                    status.HTTP_404_NOT_FOUND,
             )
 
+        return Response({
+            "account":
+                account_id,
+
+            "period":
+                selected_period,
+
+            "start_date":
+                start_date,
+
+            "end_date":
+                end_date,
+
+            "statistics":
+                statistics,
+        })
+
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+class DashboardView(
+    APIView
+):
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get(
+        self,
+        request,
+    ):
+
+        account_id, error = (
+            get_analytics_account_id(
+                request
+            )
+        )
+
+        if error:
+            return error
+
+        dashboard = (
+            get_dashboard_statistics(
+                request.user,
+                account_id
+            )
+        )
+
         return Response(
-            {
-                'account': account_id,
-                'period': selected_period,
-                'start_date': start_date,
-                'end_date': end_date,
-                'statistics': statistics
-            }
+            dashboard
         )
 
-class DashboardView(APIView):
-    permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+# ============================================================
+# GOALS
+# ============================================================
 
-        dashboard = get_dashboard_statistics(
-            request.user
-        )
+class GoalViewSet(
+    viewsets.ModelViewSet
+):
 
-        return Response(dashboard)
+    serializer_class = (
+        GoalSerializer
+    )
 
-class GoalViewSet(viewsets.ModelViewSet):
-    serializer_class = GoalSerializer
     permission_classes = (
         IsAuthenticated,
     )
 
-
     def get_queryset(self):
+
         return (
             Goal.objects
             .filter(
@@ -1243,15 +1712,14 @@ class GoalViewSet(viewsets.ModelViewSet):
             )
         )
 
-
     def perform_create(
         self,
         serializer,
     ):
+
         serializer.save(
             user=self.request.user
         )
-
 
     @action(
         detail=False,
@@ -1262,37 +1730,39 @@ class GoalViewSet(viewsets.ModelViewSet):
         self,
         request,
     ):
-        goals = self.get_queryset()
+
+        goals = (
+            self.get_queryset()
+        )
 
         active_goals = 0
         completed_goals = 0
         on_track = 0
         needs_attention = 0
 
-
         for goal in goals:
 
-            # Automatically complete
-            # goals that have reached 100%.
             sync_goal_status(
                 goal
             )
 
-
-            if goal.status == "ACTIVE":
+            if (
+                goal.status
+                == "ACTIVE"
+            ):
                 active_goals += 1
 
-
-            if goal.status == "COMPLETED":
+            if (
+                goal.status
+                == "COMPLETED"
+            ):
                 completed_goals += 1
 
-
-            # Paused/completed goals should
-            # not affect current performance
-            # status cards.
-            if goal.status != "ACTIVE":
+            if (
+                goal.status
+                != "ACTIVE"
+            ):
                 continue
-
 
             progress_status = (
                 calculate_goal_progress_status(
@@ -1300,10 +1770,11 @@ class GoalViewSet(viewsets.ModelViewSet):
                 )
             )
 
-
-            if progress_status == "ON_TRACK":
+            if (
+                progress_status
+                == "ON_TRACK"
+            ):
                 on_track += 1
-
 
             if progress_status in (
                 "BEHIND",
@@ -1311,19 +1782,16 @@ class GoalViewSet(viewsets.ModelViewSet):
             ):
                 needs_attention += 1
 
+        return Response({
+            "active_goals":
+                active_goals,
 
-        return Response(
-            {
-                "active_goals":
-                    active_goals,
+            "completed_goals":
+                completed_goals,
 
-                "completed_goals":
-                    completed_goals,
+            "on_track":
+                on_track,
 
-                "on_track":
-                    on_track,
-
-                "needs_attention":
-                    needs_attention,
-            }
-        )
+            "needs_attention":
+                needs_attention,
+        })

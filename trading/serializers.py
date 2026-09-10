@@ -6,6 +6,9 @@ from trading.services.goals import (
     calculate_goal_progress_status,
 
 )
+from trading.services.analytics import (
+    calculate_realized_account_balance,
+)
 from decimal import Decimal, ROUND_HALF_UP
 class TradingAccountSerializer(serializers.ModelSerializer):
     class Meta:
@@ -53,6 +56,7 @@ class TradeSerializer(
             "user",
             "strategy",
             "symbol",
+            "market_type",
             "direction",
             "status",
             "entry_price",
@@ -60,7 +64,9 @@ class TradeSerializer(
             "stop_loss",
             "take_profit",
             "position_size",
+            "position_size_unit",
             "risk_amount",
+            "risk_percent",
             "profit_loss",
             "fees",
             "entry_time",
@@ -177,6 +183,30 @@ class TradeSerializer(
         ):
             raise serializers.ValidationError(
                 "Risk amount cannot be negative."
+            )
+
+        return value
+
+
+    # =========================================
+    # RISK PERCENT
+    # =========================================
+
+    def validate_risk_percent(
+        self,
+        value,
+    ):
+        if value is None:
+            return value
+
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Risk percentage must be greater than zero."
+            )
+
+        if value > 100:
+            raise serializers.ValidationError(
+                "Risk percentage cannot be greater than 100%."
             )
 
         return value
@@ -472,6 +502,108 @@ class TradeSerializer(
 
 
     # =========================================
+    # RISK AMOUNT CALCULATION
+    # =========================================
+
+    def calculate_risk_amount(
+        self,
+        validated_data,
+        instance=None,
+    ):
+        risk_percent = validated_data.get(
+            "risk_percent",
+            getattr(
+                instance,
+                "risk_percent",
+                None,
+            ),
+        )
+
+        # If no percentage risk is being used,
+        # preserve the manually supplied/stored cash risk.
+        if risk_percent is None:
+            return validated_data.get(
+                "risk_amount",
+                getattr(
+                    instance,
+                    "risk_amount",
+                    None,
+                ),
+            )
+
+        account = validated_data.get(
+            "account",
+            getattr(
+                instance,
+                "account",
+                None,
+            ),
+        )
+
+        if account is None:
+            return validated_data.get(
+                "risk_amount",
+                getattr(
+                    instance,
+                    "risk_amount",
+                    None,
+                ),
+            )
+
+        entry_time = validated_data.get(
+            "entry_time",
+            getattr(
+                instance,
+                "entry_time",
+                None,
+            ),
+        )
+
+        request = self.context.get(
+            "request"
+        )
+
+        user = (
+            request.user
+            if request is not None
+            else getattr(
+                instance,
+                "user",
+                None,
+            )
+        )
+
+        if user is None:
+            return validated_data.get(
+                "risk_amount",
+                getattr(
+                    instance,
+                    "risk_amount",
+                    None,
+                ),
+            )
+
+        realized_balance = (
+            calculate_realized_account_balance(
+                user=user,
+                account=account,
+                before_time=entry_time,
+            )
+        )
+
+        risk_amount = (
+            realized_balance
+            * risk_percent
+            / Decimal("100")
+        )
+
+        return risk_amount.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+
+    # =========================================
     # PROFIT / LOSS CALCULATION
     # =========================================
 
@@ -529,6 +661,24 @@ class TradeSerializer(
             ),
         )
 
+        market_type = validated_data.get(
+            "market_type",
+            getattr(
+                instance,
+                "market_type",
+                Trade.MarketType.OTHER,
+            ),
+        )
+
+        position_size_unit = validated_data.get(
+            "position_size_unit",
+            getattr(
+                instance,
+                "position_size_unit",
+                Trade.PositionSizeUnit.UNIT,
+            ),
+        )
+
         fees = validated_data.get(
             "fees",
             getattr(
@@ -550,6 +700,67 @@ class TradeSerializer(
         fees = fees or Decimal("0")
 
 
+        # =====================================
+        # POSITION SIZE -> BASE UNITS
+        # =====================================
+        #
+        # For Forex, position size may be entered
+        # as lots. Convert those lots into base
+        # currency units before calculating P&L.
+        #
+        # Example:
+        #   3 STANDARD_LOT = 300,000 units
+        #
+        # For UNIT-based trades, position_size is
+        # already the quantity used in the P&L
+        # calculation.
+        #
+        quantity = position_size
+
+        if market_type == Trade.MarketType.FOREX:
+
+            if (
+                position_size_unit ==
+                Trade.PositionSizeUnit.STANDARD_LOT
+            ):
+                quantity = (
+                    position_size *
+                    Decimal("100000")
+                )
+
+            elif (
+                position_size_unit ==
+                Trade.PositionSizeUnit.MINI_LOT
+            ):
+                quantity = (
+                    position_size *
+                    Decimal("10000")
+                )
+
+            elif (
+                position_size_unit ==
+                Trade.PositionSizeUnit.MICRO_LOT
+            ):
+                quantity = (
+                    position_size *
+                    Decimal("1000")
+                )
+
+            elif (
+                position_size_unit ==
+                Trade.PositionSizeUnit.UNIT
+            ):
+                quantity = position_size
+
+            else:
+                raise serializers.ValidationError(
+                    {
+                        "position_size_unit":
+                            "Forex trades must use units, standard lots, mini lots, or micro lots."
+                    }
+                )
+
+
         if direction == Trade.Direction.LONG:
 
             profit_loss = (
@@ -558,7 +769,7 @@ class TradeSerializer(
                     entry_price
                 )
                 *
-                position_size
+                quantity
             ) - fees
 
         elif direction == Trade.Direction.SHORT:
@@ -569,7 +780,7 @@ class TradeSerializer(
                     exit_price
                 )
                 *
-                position_size
+                quantity
             ) - fees
 
         else:
@@ -591,6 +802,12 @@ class TradeSerializer(
         validated_data,
     ):
         validated_data[
+            "risk_amount"
+        ] = self.calculate_risk_amount(
+            validated_data
+        )
+
+        validated_data[
             "profit_loss"
         ] = self.calculate_profit_loss(
             validated_data
@@ -610,6 +827,13 @@ class TradeSerializer(
         instance,
         validated_data,
     ):
+        calculated_risk_amount = (
+            self.calculate_risk_amount(
+                validated_data,
+                instance,
+            )
+        )
+
         calculated_profit_loss = (
             self.calculate_profit_loss(
                 validated_data,
@@ -617,6 +841,10 @@ class TradeSerializer(
             )
         )
 
+
+        validated_data[
+            "risk_amount"
+        ] = calculated_risk_amount
 
         validated_data[
             "profit_loss"

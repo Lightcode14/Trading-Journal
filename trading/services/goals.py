@@ -28,6 +28,24 @@ def get_goal_period_bounds(goal):
         return start, end
 
 
+    if goal.period == "WEEKLY":
+        start = (
+            now
+            - timedelta(
+                days=now.weekday()
+            )
+        ).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+
+        end = start + timedelta(days=7)
+
+        return start, end
+
+
     if goal.period == "MONTHLY":
         start = now.replace(
             day=1,
@@ -96,6 +114,7 @@ def get_goal_period_bounds(goal):
 
     return None, None
 
+
 def get_goal_trades(goal):
     """
     Return trades relevant to this goal,
@@ -126,6 +145,8 @@ def get_goal_trades(goal):
 
 
     return trades
+
+
 def to_decimal(value):
     if value is None:
         return Decimal("0")
@@ -137,6 +158,7 @@ def to_decimal(value):
         return Decimal(str(value))
     except Exception:
         return Decimal("0")
+
 
 def calculate_goal_current(goal):
     trades = get_goal_trades(
@@ -294,6 +316,8 @@ def calculate_goal_current(goal):
 
 
     return Decimal("0")
+
+
 def calculate_goal_progress(
     goal,
     current=None,
@@ -349,6 +373,8 @@ def calculate_goal_progress(
     return progress.quantize(
         Decimal("0.01")
     )
+
+
 def calculate_goal_progress_status(
     goal,
     progress=None,
@@ -374,6 +400,8 @@ def calculate_goal_progress_status(
 
 
     return "BEHIND"
+
+
 def sync_goal_status(goal):
     """
     Synchronize the stored goal lifecycle

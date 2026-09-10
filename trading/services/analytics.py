@@ -41,11 +41,52 @@ def calculate_profit_factor(
 
 
 def calculate_r_multiple(trade):
+    """
+    Calculate the realized R-multiple for a trade.
+
+    Preferred formula:
+        R = realized profit/loss / planned risk amount
+
+    The stored risk_amount is the safest source because it already
+    represents the monetary amount the trader intended to risk.
+    This also avoids incorrect R values when Forex position size is
+    stored in lots rather than raw currency units.
+
+    For older trades that do not have risk_amount, fall back to a
+    price-distance calculation. Forex lot units are expanded into
+    their conventional contract sizes before calculating risk.
+    """
+
+    if trade.profit_loss is None:
+        return None
+
+    profit_loss = Decimal(
+        str(trade.profit_loss)
+    )
+
+    risk_amount = getattr(
+        trade,
+        "risk_amount",
+        None
+    )
+
+    if risk_amount is not None:
+        risk_amount = abs(
+            Decimal(
+                str(risk_amount)
+            )
+        )
+
+        if risk_amount > 0:
+            return (
+                profit_loss
+                / risk_amount
+            )
+
     if (
         trade.entry_price is None
         or trade.stop_loss is None
         or trade.position_size is None
-        or trade.profit_loss is None
     ):
         return None
 
@@ -61,17 +102,80 @@ def calculate_r_multiple(trade):
         str(trade.position_size)
     )
 
-    profit_loss = Decimal(
-        str(trade.profit_loss)
+    market_type = getattr(
+        trade,
+        "market_type",
+        None
     )
 
+    position_size_unit = getattr(
+        trade,
+        "position_size_unit",
+        None
+    )
+
+    effective_position_size = (
+        position_size
+    )
+
+    forex_market = getattr(
+        Trade.MarketType,
+        "FOREX",
+        "FOREX"
+    )
+
+    standard_lot = getattr(
+        Trade.PositionSizeUnit,
+        "STANDARD_LOT",
+        "STANDARD_LOT"
+    )
+
+    mini_lot = getattr(
+        Trade.PositionSizeUnit,
+        "MINI_LOT",
+        "MINI_LOT"
+    )
+
+    micro_lot = getattr(
+        Trade.PositionSizeUnit,
+        "MICRO_LOT",
+        "MICRO_LOT"
+    )
+
+    if market_type == forex_market:
+
+        if (
+            position_size_unit
+            == standard_lot
+        ):
+            effective_position_size *= (
+                Decimal("100000")
+            )
+
+        elif (
+            position_size_unit
+            == mini_lot
+        ):
+            effective_position_size *= (
+                Decimal("10000")
+            )
+
+        elif (
+            position_size_unit
+            == micro_lot
+        ):
+            effective_position_size *= (
+                Decimal("1000")
+            )
+
     risk_per_unit = abs(
-        entry_price - stop_loss
+        entry_price
+        - stop_loss
     )
 
     total_risk = (
         risk_per_unit
-        * position_size
+        * effective_position_size
     )
 
     if total_risk == 0:
@@ -176,6 +280,28 @@ def calculate_trade_metrics(trades):
         or Decimal("0")
     )
 
+    best_trade = (
+        trades.filter(
+            profit_loss__isnull=False
+        ).order_by(
+            "-profit_loss"
+        ).values_list(
+            "profit_loss",
+            flat=True
+        ).first()
+    )
+
+    worst_trade = (
+        trades.filter(
+            profit_loss__isnull=False
+        ).order_by(
+            "profit_loss"
+        ).values_list(
+            "profit_loss",
+            flat=True
+        ).first()
+    )
+
     gross_profit = (
         trades.filter(
             profit_loss__gt=0
@@ -262,6 +388,12 @@ def calculate_trade_metrics(trades):
         "average_loss":
             average_loss,
 
+        "best_trade":
+            best_trade,
+
+        "worst_trade":
+            worst_trade,
+
         "profit_factor":
             (
                 round(
@@ -308,6 +440,61 @@ def get_closed_trades(
         )
 
     return trades
+
+
+# ============================================================
+# REALIZED ACCOUNT BALANCE
+# ============================================================
+
+def calculate_realized_account_balance(
+    user,
+    account,
+    before_time=None
+):
+    """
+    Return the account's realized balance.
+
+    Realized balance =
+        starting balance
+        + profit/loss from closed trades.
+
+    If before_time is provided, only trades that were closed
+    before that time are included. This is used when calculating
+    the monetary risk for historical trades.
+    """
+
+    trades = (
+        Trade.objects.filter(
+            user=user,
+            account=account,
+            status=Trade.Status.CLOSED,
+            exit_time__isnull=False,
+            profit_loss__isnull=False
+        )
+    )
+
+    if before_time is not None:
+        trades = trades.filter(
+            exit_time__lt=before_time
+        )
+
+    realized_profit_loss = (
+        trades.aggregate(
+            total=Sum(
+                "profit_loss"
+            )
+        )["total"]
+        or Decimal("0")
+    )
+
+    starting_balance = Decimal(
+        str(account.starting_balance)
+    )
+
+    return (
+        starting_balance
+        + realized_profit_loss
+    )
 
 
 # ============================================================

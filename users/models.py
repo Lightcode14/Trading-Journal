@@ -2,15 +2,20 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 
+
 class User(AbstractUser):
-    pass;
 
-
+    profile_photo = models.ImageField(
+        upload_to="profile_photos/",
+        null=True,
+        blank=True,
+    )
 
 
 class UserPreference(models.Model):
 
     class RiskUnit(models.TextChoices):
+
         PERCENTAGE = (
             "PERCENTAGE",
             "Percentage",
@@ -23,14 +28,20 @@ class UserPreference(models.Model):
 
 
     class TradeStatus(models.TextChoices):
+
         OPEN = "OPEN", "Open"
+
         CLOSED = "CLOSED", "Closed"
 
 
     class Currency(models.TextChoices):
+
         USD = "USD", "USD"
+
         EUR = "EUR", "EUR"
+
         GBP = "GBP", "GBP"
+
         NGN = "NGN", "NGN"
 
 
@@ -60,10 +71,11 @@ class UserPreference(models.Model):
         related_name="default_for_users",
     )
 
+
     display_name = models.CharField(
-    max_length=100,
-    blank=True,
-)
+        max_length=100,
+        blank=True,
+    )
 
 
     default_risk_unit = models.CharField(
@@ -132,6 +144,7 @@ class UserPreference(models.Model):
 
 
     def __str__(self):
+
         return (
             f"{self.user} preferences"
         )

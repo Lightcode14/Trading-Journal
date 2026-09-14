@@ -1,29 +1,42 @@
-from rest_framework.generics import (RetrieveUpdateAPIView,)
+from rest_framework.generics import (
+    RetrieveUpdateAPIView,
+)
+
 from rest_framework import (
     generics,
     permissions,
+    status,
 )
+
 from rest_framework.permissions import (
     IsAuthenticated,
 )
+
+from rest_framework.parsers import (
+    MultiPartParser,
+    FormParser,
+    JSONParser,
+)
+
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from django.conf import settings
+
 from django.contrib.auth.tokens import (
     default_token_generator,
 )
+
 from django.core.mail import send_mail
+
 from django.utils.encoding import (
     force_bytes,
 )
+
 from django.utils.http import (
     urlsafe_base64_encode,
 )
 
-from rest_framework import (
-    permissions,
-    status,
-)
-from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from .models import User
 
@@ -39,13 +52,14 @@ from users.models import (
 from users.serializers import (
     UserPreferenceSerializer,
     UserProfileSerializer,
-    RegisterSerializer
+    RegisterSerializer,
 )
 
 
 class UserPreferenceView(
     RetrieveUpdateAPIView
 ):
+
     serializer_class = (
         UserPreferenceSerializer
     )
@@ -56,6 +70,7 @@ class UserPreferenceView(
 
 
     def get_object(self):
+
         preferences, _ = (
             UserPreference.objects
             .get_or_create(
@@ -78,13 +93,22 @@ class UserProfileView(
         IsAuthenticated,
     )
 
+    parser_classes = (
+        MultiPartParser,
+        FormParser,
+        JSONParser,
+    )
+
 
     def get_object(self):
+
         return self.request.user
+
 
 class RegisterView(
     generics.CreateAPIView
 ):
+
     serializer_class = (
         RegisterSerializer
     )
@@ -93,9 +117,11 @@ class RegisterView(
         permissions.AllowAny
     ]
 
+
 class PasswordResetRequestView(
     APIView
 ):
+
     permission_classes = [
         permissions.AllowAny
     ]
@@ -105,6 +131,7 @@ class PasswordResetRequestView(
         self,
         request,
     ):
+
         serializer = (
             PasswordResetRequestSerializer(
                 data=request.data
@@ -130,9 +157,12 @@ class PasswordResetRequestView(
         # This prevents exposing whether
         # an email exists in the system.
         if user:
-            uid = urlsafe_base64_encode(
-                force_bytes(
-                    user.pk
+
+            uid = (
+                urlsafe_base64_encode(
+                    force_bytes(
+                        user.pk
+                    )
                 )
             )
 
@@ -150,7 +180,6 @@ class PasswordResetRequestView(
                 f"?uid={uid}"
                 f"&token={token}"
             )
-            
 
 
             send_mail(
@@ -180,6 +209,7 @@ class PasswordResetRequestView(
                 "detail":
                     "If an account exists with that email, a password reset link has been sent."
             },
+
             status=
                 status.HTTP_200_OK,
         )
@@ -188,6 +218,7 @@ class PasswordResetRequestView(
 class PasswordResetConfirmView(
     APIView
 ):
+
     permission_classes = [
         permissions.AllowAny
     ]
@@ -197,6 +228,7 @@ class PasswordResetConfirmView(
         self,
         request,
     ):
+
         serializer = (
             PasswordResetConfirmSerializer(
                 data=request.data
@@ -215,6 +247,7 @@ class PasswordResetConfirmView(
                 "detail":
                     "Password has been reset successfully."
             },
+
             status=
                 status.HTTP_200_OK,
         )

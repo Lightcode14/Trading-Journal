@@ -1,12 +1,19 @@
 from rest_framework import serializers
 
-from trading.models import TradingAccount
-
-from .models import UserPreference,User
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
+
+from trading.models import TradingAccount
+
+from .models import (
+    UserPreference,
+)
+
+
+User = get_user_model()
+
 
 class UserPreferenceSerializer(
     serializers.ModelSerializer
@@ -84,21 +91,21 @@ class UserPreferenceSerializer(
         return value
 
 
-from rest_framework import serializers
-
-from .models import (
-    User,
-    UserPreference,
-)
-
-
 class UserProfileSerializer(
     serializers.ModelSerializer
 ):
+
     display_name = serializers.CharField(
         required=False,
         allow_blank=True,
     )
+
+
+    profile_photo = serializers.ImageField(
+        required=False,
+        allow_null=True,
+    )
+
 
     class Meta:
         model = User
@@ -109,6 +116,7 @@ class UserProfileSerializer(
             "last_name",
             "email",
             "display_name",
+            "profile_photo",
         )
 
         read_only_fields = (
@@ -122,6 +130,7 @@ class UserProfileSerializer(
     ):
         value = value.lower().strip()
 
+
         queryset = (
             User.objects
             .filter(
@@ -129,15 +138,62 @@ class UserProfileSerializer(
             )
         )
 
+
         if self.instance:
             queryset = queryset.exclude(
                 pk=self.instance.pk
             )
 
+
         if queryset.exists():
             raise serializers.ValidationError(
                 "A user with this email address already exists."
             )
+
+
+        return value
+
+
+    def validate_profile_photo(
+        self,
+        value,
+    ):
+        if value is None:
+            return value
+
+
+        maximum_size = (
+            2 * 1024 * 1024
+        )
+
+
+        if value.size > maximum_size:
+            raise serializers.ValidationError(
+                "Profile photo must be 2MB or smaller."
+            )
+
+
+        content_type = getattr(
+            value,
+            "content_type",
+            "",
+        )
+
+
+        allowed_types = (
+            "image/jpeg",
+            "image/png",
+        )
+
+
+        if (
+            content_type and
+            content_type not in allowed_types
+        ):
+            raise serializers.ValidationError(
+                "Only JPG and PNG images are allowed."
+            )
+
 
         return value
 
@@ -150,17 +206,20 @@ class UserProfileSerializer(
             instance
         )
 
+
         preferences = getattr(
             instance,
             "preferences",
             None,
         )
 
+
         data["display_name"] = (
             preferences.display_name
             if preferences
             else ""
         )
+
 
         return data
 
@@ -177,10 +236,12 @@ class UserProfileSerializer(
             )
         )
 
+
         instance = super().update(
             instance,
             validated_data,
         )
+
 
         preferences, _ = (
             UserPreference.objects
@@ -189,10 +250,12 @@ class UserProfileSerializer(
             )
         )
 
+
         if display_name is not None:
             preferences.display_name = (
                 display_name
             )
+
 
             preferences.save(
                 update_fields=[
@@ -201,16 +264,19 @@ class UserProfileSerializer(
                 ]
             )
 
+
         return instance
 
-User = get_user_model()
+
 class RegisterSerializer(
     serializers.ModelSerializer
 ):
+
     password = serializers.CharField(
         write_only=True,
         min_length=8,
     )
+
 
     password2 = serializers.CharField(
         write_only=True,
@@ -244,12 +310,14 @@ class RegisterSerializer(
     ):
         value = value.strip().lower()
 
+
         if User.objects.filter(
             email__iexact=value
         ).exists():
             raise serializers.ValidationError(
                 "An account with this email already exists."
             )
+
 
         return value
 
@@ -273,6 +341,7 @@ class RegisterSerializer(
                 }
             )
 
+
         return attrs
 
 
@@ -287,6 +356,7 @@ class RegisterSerializer(
         validated_data.pop(
             "password2"
         )
+
 
         password = (
             validated_data.pop(
@@ -314,6 +384,7 @@ class RegisterSerializer(
 class PasswordResetRequestSerializer(
     serializers.Serializer
 ):
+
     email = serializers.EmailField()
 
 
@@ -323,9 +394,11 @@ class PasswordResetRequestSerializer(
     ):
         return value.strip().lower()
 
+
 class PasswordResetConfirmSerializer(
     serializers.Serializer
 ):
+
     uid = serializers.CharField()
 
     token = serializers.CharField()
@@ -364,9 +437,11 @@ class PasswordResetConfirmSerializer(
                 )
             )
 
+
             user = User.objects.get(
                 pk=user_id
             )
+
 
         except (
             User.DoesNotExist,
@@ -396,6 +471,7 @@ class PasswordResetConfirmSerializer(
 
         attrs["user"] = user
 
+
         return attrs
 
 
@@ -406,16 +482,19 @@ class PasswordResetConfirmSerializer(
             "user"
         ]
 
+
         user.set_password(
             self.validated_data[
                 "password"
             ]
         )
 
+
         user.save(
             update_fields=[
                 "password"
             ]
         )
+
 
         return user

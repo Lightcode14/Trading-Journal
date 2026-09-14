@@ -172,3 +172,5 @@ MAILERS = {
 DEFAULT_FROM_EMAIL = (
     "noreply@tradecraft.local"
 )
+MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_URL = "/media/"

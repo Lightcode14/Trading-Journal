@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db.models import Sum, Avg
 
+from users.models import UserPreference
+
 from trading.models import (
     Trade,
     Strategy,
@@ -10,8 +12,87 @@ from trading.models import (
 
 
 # ============================================================
-# BASIC TRADE METRICS
+# USER R-MULTIPLE PREFERENCE
 # ============================================================
+
+def should_auto_calculate_r(user):
+    preference = (
+        UserPreference.objects
+        .filter(user=user)
+        .values_list(
+            "auto_calculate_r",
+            flat=True,
+        )
+        .first()
+    )
+
+    if preference is None:
+        return True
+
+    return bool(preference)
+
+
+def should_include_fees(user):
+    preference = (
+        UserPreference.objects
+        .filter(user=user)
+        .values_list(
+            "include_fees",
+            flat=True,
+        )
+        .first()
+    )
+
+    if preference is None:
+        return True
+
+    return bool(preference)
+
+
+def get_performance_profit_loss(
+    trade,
+    include_fees=True,
+):
+    """
+    Return the P&L value TradeCraft should use
+    for performance calculations.
+
+    Stored profit_loss is treated as net P&L.
+
+    If fees are included:
+        use stored net P&L.
+
+    If fees are excluded:
+        add the fee back to obtain gross P&L.
+    """
+
+    if trade.profit_loss is None:
+        return None
+
+    profit_loss = Decimal(
+        str(
+            trade.profit_loss
+        )
+    )
+
+    if include_fees:
+        return profit_loss
+
+    fees = Decimal(
+        str(
+            getattr(
+                trade,
+                "fees",
+                Decimal("0"),
+            )
+            or Decimal("0")
+        )
+    )
+
+    return (
+        profit_loss +
+        fees
+    )
 
 def calculate_win_rate(
     total_trades,
@@ -40,7 +121,10 @@ def calculate_profit_factor(
     )
 
 
-def calculate_r_multiple(trade):
+def calculate_r_multiple(
+    trade,
+    include_fees=True,
+):
     """
     Calculate the realized R-multiple for a trade.
 
@@ -187,9 +271,15 @@ def calculate_r_multiple(trade):
     )
 
 
-def calculate_average_r(trades):
+def calculate_average_r(
+    trades,
+    include_fees=True,
+):
     r_multiples = [
-        calculate_r_multiple(trade)
+        calculate_r_multiple(
+            trade,
+            include_fees=include_fees,
+        )
         for trade in trades
     ]
 
@@ -231,103 +321,132 @@ def calculate_expectancy(
     )
 
 
-def calculate_trade_metrics(trades):
+def calculate_trade_metrics(
+    trades,
+    auto_calculate_r=True,
+    include_fees=True,
+):
+    trade_list = list(trades)
 
-    total_trades = (
-        trades.count()
+    performance_rows = []
+
+    for trade in trade_list:
+        profit_loss = (
+            get_performance_profit_loss(
+                trade,
+                include_fees=include_fees,
+            )
+        )
+
+        if profit_loss is not None:
+            performance_rows.append(
+                (
+                    trade,
+                    profit_loss,
+                )
+            )
+
+    total_trades = len(
+        trade_list
     )
 
-    winning_trades = (
-        trades.filter(
-            profit_loss__gt=0
-        ).count()
+    winning_values = [
+        profit_loss
+        for _trade, profit_loss
+        in performance_rows
+        if profit_loss > 0
+    ]
+
+    losing_values = [
+        profit_loss
+        for _trade, profit_loss
+        in performance_rows
+        if profit_loss < 0
+    ]
+
+    winning_trades = len(
+        winning_values
     )
 
-    losing_trades = (
-        trades.filter(
-            profit_loss__lt=0
-        ).count()
+    losing_trades = len(
+        losing_values
     )
 
     total_profit_loss = (
-        trades.aggregate(
-            total=Sum(
-                "profit_loss"
-            )
-        )["total"]
-        or Decimal("0")
+        sum(
+            (
+                profit_loss
+                for _trade, profit_loss
+                in performance_rows
+            ),
+            Decimal("0"),
+        )
     )
 
     average_win = (
-        trades.filter(
-            profit_loss__gt=0
-        ).aggregate(
-            average=Avg(
-                "profit_loss"
+        sum(
+            winning_values,
+            Decimal("0"),
+        )
+        / Decimal(
+            len(
+                winning_values
             )
-        )["average"]
-        or Decimal("0")
+        )
+        if winning_values
+        else Decimal("0")
     )
 
     average_loss = (
-        trades.filter(
-            profit_loss__lt=0
-        ).aggregate(
-            average=Avg(
-                "profit_loss"
+        sum(
+            losing_values,
+            Decimal("0"),
+        )
+        / Decimal(
+            len(
+                losing_values
             )
-        )["average"]
-        or Decimal("0")
+        )
+        if losing_values
+        else Decimal("0")
     )
 
     best_trade = (
-        trades.filter(
-            profit_loss__isnull=False
-        ).order_by(
-            "-profit_loss"
-        ).values_list(
-            "profit_loss",
-            flat=True
-        ).first()
+        max(
+            (
+                profit_loss
+                for _trade, profit_loss
+                in performance_rows
+            ),
+            default=None,
+        )
     )
 
     worst_trade = (
-        trades.filter(
-            profit_loss__isnull=False
-        ).order_by(
-            "profit_loss"
-        ).values_list(
-            "profit_loss",
-            flat=True
-        ).first()
+        min(
+            (
+                profit_loss
+                for _trade, profit_loss
+                in performance_rows
+            ),
+            default=None,
+        )
     )
 
-    gross_profit = (
-        trades.filter(
-            profit_loss__gt=0
-        ).aggregate(
-            total=Sum(
-                "profit_loss"
-            )
-        )["total"]
-        or Decimal("0")
+    gross_profit = sum(
+        winning_values,
+        Decimal("0"),
     )
 
-    gross_loss = (
-        trades.filter(
-            profit_loss__lt=0
-        ).aggregate(
-            total=Sum(
-                "profit_loss"
-            )
-        )["total"]
-        or Decimal("0")
+    gross_loss = sum(
+        losing_values,
+        Decimal("0"),
     )
 
     win_rate = (
         calculate_win_rate(
             total_trades,
-            winning_trades
+            winning_trades,
         )
     )
 
@@ -344,14 +463,17 @@ def calculate_trade_metrics(trades):
     profit_factor = (
         calculate_profit_factor(
             gross_profit,
-            gross_loss
+            gross_loss,
         )
     )
 
     average_r = (
         calculate_average_r(
-            trades
+            trade_list,
+            include_fees=include_fees,
         )
+        if auto_calculate_r
+        else None
     )
 
     expectancy = (
@@ -359,7 +481,7 @@ def calculate_trade_metrics(trades):
             win_rate,
             loss_rate,
             average_win,
-            average_loss
+            average_loss,
         )
     )
 
@@ -376,7 +498,7 @@ def calculate_trade_metrics(trades):
         "win_rate":
             round(
                 win_rate,
-                2
+                2,
             ),
 
         "total_profit_loss":
@@ -398,22 +520,26 @@ def calculate_trade_metrics(trades):
             (
                 round(
                     profit_factor,
-                    2
+                    2,
                 )
                 if profit_factor is not None
                 else None
             ),
 
         "average_r":
-            round(
-                average_r,
-                2
+            (
+                round(
+                    average_r,
+                    2,
+                )
+                if average_r is not None
+                else None
             ),
 
         "expectancy":
             round(
                 expectancy,
-                2
+                2,
             ),
     }
 
@@ -511,9 +637,25 @@ def get_trade_statistics(
         account_id
     )
 
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     return (
         calculate_trade_metrics(
-            trades
+            trades,
+            auto_calculate_r=
+                auto_calculate_r,
+            include_fees=
+                include_fees,
         )
     )
 
@@ -530,6 +672,18 @@ def get_symbol_statistics(
     trades = get_closed_trades(
         user,
         account_id
+    )
+
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
     )
 
     symbols = (
@@ -551,7 +705,11 @@ def get_symbol_statistics(
 
         metrics = (
             calculate_trade_metrics(
-                symbol_trades
+                symbol_trades,
+                auto_calculate_r=
+                    auto_calculate_r,
+                include_fees=
+                    include_fees,
             )
         )
 
@@ -577,6 +735,18 @@ def get_direction_statistics(
         account_id
     )
 
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     directions = (
         trades.values_list(
             "direction",
@@ -596,7 +766,11 @@ def get_direction_statistics(
 
         metrics = (
             calculate_trade_metrics(
-                direction_trades
+                direction_trades,
+                auto_calculate_r=
+                    auto_calculate_r,
+                include_fees=
+                    include_fees,
             )
         )
 
@@ -625,6 +799,18 @@ def get_strategy_statistics(
         strategy__isnull=False
     )
 
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     strategies = (
         trades.values_list(
             "strategy",
@@ -645,7 +831,11 @@ def get_strategy_statistics(
 
         metrics = (
             calculate_trade_metrics(
-                strategy_trades
+                strategy_trades,
+                auto_calculate_r=
+                    auto_calculate_r,
+                include_fees=
+                    include_fees,
             )
         )
 
@@ -684,9 +874,25 @@ def get_time_statistics(
         exit_time__lt=end_date
     )
 
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     return (
         calculate_trade_metrics(
-            trades
+            trades,
+            auto_calculate_r=
+                auto_calculate_r,
+            include_fees=
+                include_fees,
         )
     )
 
@@ -697,7 +903,8 @@ def get_time_statistics(
 
 def calculate_equity_curve(
     trades,
-    starting_equity
+    starting_equity,
+    include_fees=True,
 ):
 
     trades = trades.order_by(
@@ -723,7 +930,10 @@ def calculate_equity_curve(
     for trade in trades:
 
         profit_loss = (
-            trade.profit_loss
+            get_performance_profit_loss(
+                trade,
+                include_fees=include_fees,
+            )
             or Decimal("0")
         )
 
@@ -889,10 +1099,18 @@ def get_equity_statistics(
                 end_date
         )
 
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     return (
         calculate_equity_curve(
             trades,
-            starting_equity
+            starting_equity,
+            include_fees=
+                include_fees,
         )
     )
 
@@ -915,9 +1133,25 @@ def get_dashboard_statistics(
         account_id
     )
 
+    auto_calculate_r = (
+        should_auto_calculate_r(
+            user
+        )
+    )
+
+    include_fees = (
+        should_include_fees(
+            user
+        )
+    )
+
     overview = (
         calculate_trade_metrics(
-            trades
+            trades,
+            auto_calculate_r=
+                auto_calculate_r,
+            include_fees=
+                include_fees,
         )
     )
 
@@ -970,7 +1204,11 @@ def get_dashboard_statistics(
                 trade.exit_price,
 
             "profit_loss":
-                trade.profit_loss,
+                get_performance_profit_loss(
+                    trade,
+                    include_fees=
+                        include_fees,
+                ),
 
             "entry_time":
                 trade.entry_time,

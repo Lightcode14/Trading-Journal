@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TradingAccount,Trade,JournalEntry,Strategy,Goal
+from .models import Notification, TradingAccount,Trade,JournalEntry,Strategy,Goal
 from trading.services.goals import (
     calculate_goal_current,
     calculate_goal_progress,
@@ -1039,3 +1039,31 @@ class GoalSerializer(
         return calculate_goal_progress_status(
             obj
         )
+
+class NotificationSerializer(
+    serializers.ModelSerializer
+):
+
+    class Meta:
+        model = Notification
+
+        fields = [
+            "id",
+            "notification_type",
+            "title",
+            "message",
+            "is_read",
+            "goal",
+            "event_key",
+            "created_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "notification_type",
+            "title",
+            "message",
+            "goal",
+            "event_key",
+            "created_at",
+        ]

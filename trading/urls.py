@@ -1,5 +1,5 @@
 from rest_framework.routers import DefaultRouter
-from .views import (EquityStatisticsView, TradingAccountViewSet,TradeViewSet,
+from .views import (EquityStatisticsView, NotificationViewSet, TradingAccountViewSet,TradeViewSet,
                     JournalEntryViewSet,StrategyViewSet,
                     TradeStatisticsView,SymbolStatisticsView,
                     DirectionStatisticsView,StrategyStatisticsView,
@@ -34,6 +34,11 @@ router.register(
     'goals',
     GoalViewSet,
     basename='goal'
+)
+router.register(
+    "notifications",
+    NotificationViewSet,
+    basename="notification",
 )
 urlpatterns = [
      path('', include(router.urls)),

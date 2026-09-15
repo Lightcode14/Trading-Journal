@@ -56,9 +56,11 @@ from .serializers import (
     JournalEntrySerializer,
     StrategySerializer,
     GoalSerializer,
+    NotificationSerializer
 )
 
 from .models import (
+    Notification,
     TradingAccount,
     Trade,
     JournalEntry,
@@ -1794,4 +1796,86 @@ class GoalViewSet(
 
             "needs_attention":
                 needs_attention,
+        })
+
+# ============================================================
+# NOTIFICATIONS
+# ============================================================
+
+class NotificationViewSet(
+    viewsets.ReadOnlyModelViewSet
+):
+
+    serializer_class = (
+        NotificationSerializer
+    )
+
+    permission_classes = (
+        IsAuthenticated,
+    )
+
+    def get_queryset(self):
+        return (
+            Notification.objects
+            .filter(
+                user=self.request.user
+            )
+            .select_related(
+                "goal"
+            )
+            .order_by(
+                "-created_at"
+            )
+        )
+
+    @action(
+        detail=True,
+        methods=["patch"],
+        url_path="read",
+    )
+    def mark_read(
+        self,
+        request,
+        pk=None,
+    ):
+        notification = (
+            self.get_object()
+        )
+
+        notification.is_read = True
+
+        notification.save(
+            update_fields=[
+                "is_read",
+            ]
+        )
+
+        return Response(
+            self.get_serializer(
+                notification
+            ).data
+        )
+
+    @action(
+        detail=False,
+        methods=["patch"],
+        url_path="read-all",
+    )
+    def mark_all_read(
+        self,
+        request,
+    ):
+        updated = (
+            self.get_queryset()
+            .filter(
+                is_read=False
+            )
+            .update(
+                is_read=True
+            )
+        )
+
+        return Response({
+            "success": True,
+            "updated": updated,
         })

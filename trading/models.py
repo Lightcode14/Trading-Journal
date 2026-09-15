@@ -331,3 +331,91 @@ class Goal(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.title}"
+class Notification(models.Model):
+
+    class Type(models.TextChoices):
+        GOAL_REACHED = (
+            "GOAL_REACHED",
+            "Goal Reached",
+        )
+
+        DRAWDOWN_WARNING = (
+            "DRAWDOWN_WARNING",
+            "Drawdown Warning",
+        )
+
+        JOURNAL_REMINDER = (
+            "JOURNAL_REMINDER",
+            "Journal Reminder",
+        )
+
+        WEEKLY_SUMMARY = (
+            "WEEKLY_SUMMARY",
+            "Weekly Summary",
+        )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+
+    notification_type = models.CharField(
+        max_length=30,
+        choices=Type.choices,
+    )
+
+    title = models.CharField(
+        max_length=150,
+    )
+
+    message = models.TextField()
+
+    is_read = models.BooleanField(
+        default=False,
+    )
+
+    goal = models.ForeignKey(
+        Goal,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+        null=True,
+        blank=True,
+    )
+
+    event_key = models.CharField(
+        max_length=100,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = [
+            "-created_at",
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "user",
+                    "notification_type",
+                    "goal",
+                    "event_key",
+                ],
+                condition=models.Q(
+                    goal__isnull=False
+                ),
+                name=(
+                    "unique_goal_notification_event"
+                ),
+            )
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.user} - "
+            f"{self.title}"
+        )

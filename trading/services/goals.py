@@ -3,7 +3,8 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from trading.models import Trade
+from trading.models import Trade,Notification
+from users.models import UserPreference
 
 
 def get_goal_period_bounds(goal):
@@ -160,9 +161,51 @@ def to_decimal(value):
         return Decimal("0")
 
 
+def should_include_fees(user):
+    preference = (
+        UserPreference.objects
+        .filter(user=user)
+        .values_list(
+            "include_fees",
+            flat=True,
+        )
+        .first()
+    )
+
+    if preference is None:
+        return True
+
+    return bool(preference)
+
+
+def get_goal_profit_loss(
+    trade,
+    include_fees=True,
+):
+    profit_loss = to_decimal(
+        trade.profit_loss
+    )
+
+    if include_fees:
+        return profit_loss
+
+    return (
+        profit_loss
+        + to_decimal(
+            trade.fees
+        )
+    )
+
+
 def calculate_goal_current(goal):
     trades = get_goal_trades(
         goal
+    )
+
+    include_fees = (
+        should_include_fees(
+            goal.user
+        )
     )
 
 
@@ -174,8 +217,12 @@ def calculate_goal_current(goal):
         total = Decimal("0")
 
         for trade in closed_trades:
-            total += to_decimal(
-                trade.profit_loss
+            total += (
+                get_goal_profit_loss(
+                    trade,
+                    include_fees=
+                        include_fees,
+                )
             )
 
         return total
@@ -188,12 +235,14 @@ def calculate_goal_current(goal):
 
 
     if goal.goal_type == "WIN_RATE":
-        closed_trades = trades.filter(
-            status="CLOSED"
+        closed_trades = list(
+            trades.filter(
+                status="CLOSED"
+            )
         )
 
-        total_closed = (
-            closed_trades.count()
+        total_closed = len(
+            closed_trades
         )
 
 
@@ -201,11 +250,18 @@ def calculate_goal_current(goal):
             return Decimal("0")
 
 
-        wins = (
-            closed_trades.filter(
-                profit_loss__gt=0
-            ).count()
-        )
+        wins = 0
+
+        for trade in closed_trades:
+            if (
+                get_goal_profit_loss(
+                    trade,
+                    include_fees=
+                        include_fees,
+                )
+                > 0
+            ):
+                wins += 1
 
 
         return (
@@ -253,8 +309,7 @@ def calculate_goal_current(goal):
 
     if goal.goal_type == "MAX_LOSS":
         closed_trades = trades.filter(
-            status="CLOSED",
-            profit_loss__lt=0,
+            status="CLOSED"
         )
 
 
@@ -262,11 +317,18 @@ def calculate_goal_current(goal):
 
 
         for trade in closed_trades:
-            total_loss += abs(
-                to_decimal(
-                    trade.profit_loss
+            profit_loss = (
+                get_goal_profit_loss(
+                    trade,
+                    include_fees=
+                        include_fees,
                 )
             )
+
+            if profit_loss < 0:
+                total_loss += abs(
+                    profit_loss
+                )
 
 
         return total_loss
@@ -401,27 +463,26 @@ def calculate_goal_progress_status(
 
     return "BEHIND"
 
-
 def sync_goal_status(goal):
     """
     Synchronize the stored goal lifecycle
-    status with calculated progress.
+    status with calculated progress and
+    create a goal notification when the
+    target is reached.
     """
 
     if goal.status == "PAUSED":
         return goal.status
 
-
     if goal.status == "COMPLETED":
         return goal.status
-
 
     progress = calculate_goal_progress(
         goal
     )
 
-
     if progress >= Decimal("100"):
+
         goal.status = "COMPLETED"
 
         goal.save(
@@ -431,5 +492,61 @@ def sync_goal_status(goal):
             ]
         )
 
+        if should_send_goal_alerts(
+            goal.user
+        ):
+            start, end = (
+                get_goal_period_bounds(
+                    goal
+                )
+            )
+
+            if start is not None:
+                event_key = (
+                    start.date().isoformat()
+                )
+            else:
+                event_key = (
+                    f"goal-{goal.id}"
+                )
+
+            Notification.objects.get_or_create(
+                user=goal.user,
+                notification_type=(
+                    Notification.Type.GOAL_REACHED
+                ),
+                goal=goal,
+                event_key=event_key,
+                defaults={
+                    "title":
+                        "Trading Goal Reached",
+
+                    "message":
+                        (
+                            f'You reached your '
+                            f'"{goal.title}" goal.'
+                        ),
+                },
+            )
 
     return goal.status
+def should_send_goal_alerts(user):
+    """
+    Return whether the user has enabled
+    Trading Goal Alerts.
+    """
+
+    preference = (
+        UserPreference.objects
+        .filter(user=user)
+        .values_list(
+            "goal_alerts",
+            flat=True,
+        )
+        .first()
+    )
+
+    if preference is None:
+        return True
+
+    return bool(preference)

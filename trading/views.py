@@ -1,5 +1,4 @@
 from django.shortcuts import render
-
 from rest_framework import (
     viewsets,
     status,
@@ -82,6 +81,7 @@ from trading.services.goals import (
     calculate_goal_progress,
     calculate_goal_progress_status,
     sync_goal_status,
+    sync_user_goals,
 )
 
 from trading.services.trade_import import (
@@ -449,8 +449,18 @@ class TradeViewSet(
                 "to use this trading account."
             )
 
-        serializer.save(
+        trade = serializer.save(
             user=self.request.user
+        )
+
+
+        # =====================================
+        # SYNCHRONIZE TRADING GOALS
+        # =====================================
+
+        sync_user_goals(
+            user=self.request.user,
+            account=trade.account,
         )
 
     # --------------------------------------------------------

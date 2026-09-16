@@ -550,3 +550,40 @@ def should_send_goal_alerts(user):
         return True
 
     return bool(preference)
+
+
+def sync_user_goals(
+    user,
+    account=None,
+):
+    """
+    Recalculate the user's active goals and
+    synchronize their statuses.
+
+    If an account is provided, check:
+    - goals belonging to that account
+    - goals that apply to all accounts
+    """
+
+    from trading.models import Goal
+
+
+    goals = Goal.objects.filter(
+        user=user,
+        status="ACTIVE",
+    )
+
+
+    if account is not None:
+
+        from django.db.models import Q
+
+        goals = goals.filter(
+            Q(account=account)
+            |
+            Q(account__isnull=True)
+        )
+
+
+    for goal in goals:
+        sync_goal_status(goal)

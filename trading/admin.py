@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Trade, TradingAccount,Goal,JournalEntry
+from .models import Trade, TradingAccount,Goal,JournalEntry,Notification
 
 
 @admin.register(TradingAccount)
@@ -61,3 +61,4 @@ class GoalAdmin(admin.ModelAdmin):
     )
 
 admin.site.register(JournalEntry)
+admin.site.register(Notification)

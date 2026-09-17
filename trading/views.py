@@ -84,6 +84,10 @@ from trading.services.goals import (
     sync_user_goals,
 )
 
+from trading.services.drawdown import (
+    check_drawdown_warning,
+)
+
 from trading.services.trade_import import (
     import_trade_csv,
     import_trade_json,
@@ -462,6 +466,20 @@ class TradeViewSet(
             user=self.request.user,
             account=trade.account,
         )
+
+
+        # =====================================
+        # CHECK DRAWDOWN WARNING
+        # =====================================
+
+        if (
+            trade.status
+            == Trade.Status.CLOSED
+        ):
+            check_drawdown_warning(
+                user=self.request.user,
+                account=trade.account,
+            )
 
     # --------------------------------------------------------
     # CSV import

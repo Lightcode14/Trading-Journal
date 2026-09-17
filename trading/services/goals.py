@@ -139,10 +139,25 @@ def get_goal_trades(goal):
 
 
     if start and end:
-        trades = trades.filter(
-            entry_time__gte=start,
-            entry_time__lt=end,
+        # Realized-performance goals belong to the period in
+        # which the trade was closed, not when it was opened.
+        realized_goal_types = (
+            "PROFIT",
+            "WIN_RATE",
+            "JOURNAL_COMPLETION",
+            "MAX_LOSS",
         )
+
+        if goal.goal_type in realized_goal_types:
+            trades = trades.filter(
+                exit_time__gte=start,
+                exit_time__lt=end,
+            )
+        else:
+            trades = trades.filter(
+                entry_time__gte=start,
+                entry_time__lt=end,
+            )
 
 
     return trades
@@ -474,8 +489,9 @@ def sync_goal_status(goal):
     if goal.status == "PAUSED":
         return goal.status
 
-    if goal.status == "COMPLETED":
-        return goal.status
+    was_completed = (
+        goal.status == "COMPLETED"
+    )
 
     progress = calculate_goal_progress(
         goal
@@ -483,17 +499,21 @@ def sync_goal_status(goal):
 
     if progress >= Decimal("100"):
 
-        goal.status = "COMPLETED"
+        if not was_completed:
+            goal.status = "COMPLETED"
 
-        goal.save(
-            update_fields=[
-                "status",
-                "updated_at",
-            ]
-        )
+            goal.save(
+                update_fields=[
+                    "status",
+                    "updated_at",
+                ]
+            )
 
-        if should_send_goal_alerts(
-            goal.user
+        if (
+            not was_completed
+            and should_send_goal_alerts(
+                goal.user
+            )
         ):
             start, end = (
                 get_goal_period_bounds(
@@ -528,6 +548,18 @@ def sync_goal_status(goal):
                         ),
                 },
             )
+
+    elif was_completed:
+        # Repair a completed goal if recalculation shows that
+        # it is no longer at 100%.
+        goal.status = "ACTIVE"
+
+        goal.save(
+            update_fields=[
+                "status",
+                "updated_at",
+            ]
+        )
 
     return goal.status
 def should_send_goal_alerts(user):

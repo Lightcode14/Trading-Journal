@@ -123,6 +123,13 @@ class UserPreference(models.Model):
     )
 
 
+    drawdown_warning_threshold = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=10,
+    )
+
+
     journal_reminders = models.BooleanField(
         default=True
     )

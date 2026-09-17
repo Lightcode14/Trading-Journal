@@ -41,6 +41,7 @@ class UserPreferenceSerializer(
             "default_trade_status",
             "goal_alerts",
             "drawdown_warnings",
+            "drawdown_warning_threshold",
             "journal_reminders",
             "weekly_summary",
             "created_at",
@@ -85,6 +86,25 @@ class UserPreferenceSerializer(
         if value < 0:
             raise serializers.ValidationError(
                 "Default risk cannot be negative."
+            )
+
+
+        return value
+
+
+    def validate_drawdown_warning_threshold(
+        self,
+        value,
+    ):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Drawdown warning threshold must be greater than 0%."
+            )
+
+
+        if value > 100:
+            raise serializers.ValidationError(
+                "Drawdown warning threshold cannot exceed 100%."
             )
 
 

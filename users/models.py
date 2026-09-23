@@ -10,6 +10,14 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
+    two_factor_enabled = models.BooleanField(
+        default=False,
+    )
+
+    two_factor_secret = models.CharField(
+        max_length=255,
+        blank=True,
+    )
 
 
 class UserPreference(models.Model):

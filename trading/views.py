@@ -156,37 +156,29 @@ def get_analytics_account_id(
 # TRADING ACCOUNTS
 # ============================================================
 
-class TradingAccountViewSet(
-    viewsets.ModelViewSet
-):
+class TradingAccountViewSet(viewsets.ModelViewSet):
 
-    serializer_class = (
-        TradingAccountSerializer
-    )
+    serializer_class = TradingAccountSerializer
 
-    permission_classes = [
-        IsAuthenticated
-    ]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-
         return (
             TradingAccount.objects
-            .filter(
-                user=self.request.user
-            )
-            .order_by(
-                "-created_at"
-            )
+            .filter(user=self.request.user)
+            .order_by("-created_at")
         )
 
-    def perform_create(
-        self,
-        serializer,
-    ):
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-        serializer.save(
-            user=self.request.user
+    # --------------------------------------------------------
+    # Helper: build the public webhook URL for an account
+    # --------------------------------------------------------
+
+    def _build_webhook_url(self, request, account):
+        return request.build_absolute_uri(
+            f"/api/trading/tradingview/webhook/{account.webhook_secret}/"
         )
 
     # --------------------------------------------------------
@@ -198,54 +190,22 @@ class TradingAccountViewSet(
         methods=["get"],
         url_path="tradingview",
     )
-    def tradingview_settings(
-        self,
-        request,
-        pk=None,
-    ):
+    def tradingview_settings(self, request, pk=None):
 
-        account = (
-            self.get_object()
-        )
+        account = self.get_object()
 
-        webhook_url = (
-            request.build_absolute_uri(
-                f"/api/trading/"
-                f"tradingview/"
-                f"webhook/"
-                f"{account.webhook_secret}/"
-            )
-        )
-
-        templates = (
-            get_tradingview_templates(
-                account
-            )
-        )
+        # Older accounts created before the secret existed
+        if not account.webhook_secret:
+            account.save()
 
         return Response({
-            "account_id":
-                account.id,
-
-            "account_name":
-                account.name,
-
-            "enabled":
-                account.webhook_enabled,
-
-            "has_secret":
-                bool(
-                    account.webhook_secret
-                ),
-
-            "webhook_secret":
-                account.webhook_secret,
-
-            "webhook_url":
-                webhook_url,
-
-            "templates":
-                templates,
+            "account_id": account.id,
+            "account_name": account.name,
+            "enabled": account.webhook_enabled,
+            "has_secret": bool(account.webhook_secret),
+            "webhook_secret": account.webhook_secret,
+            "webhook_url": self._build_webhook_url(request, account),
+            "templates": get_tradingview_templates(account),
         })
 
     # --------------------------------------------------------
@@ -255,26 +215,13 @@ class TradingAccountViewSet(
     @action(
         detail=True,
         methods=["post"],
-        url_path=(
-            "tradingview/"
-            "regenerate-secret"
-        ),
+        url_path="tradingview/regenerate-secret",
     )
-    def regenerate_webhook_secret(
-        self,
-        request,
-        pk=None,
-    ):
+    def regenerate_webhook_secret(self, request, pk=None):
 
-        account = (
-            self.get_object()
-        )
+        account = self.get_object()
 
-        account.webhook_secret = (
-            secrets.token_urlsafe(
-                32
-            )
-        )
+        account.webhook_secret = secrets.token_urlsafe(32)
 
         account.save(
             update_fields=[
@@ -283,27 +230,11 @@ class TradingAccountViewSet(
             ]
         )
 
-        webhook_url = (
-            request.build_absolute_uri(
-                f"/api/trading/"
-                f"tradingview/"
-                f"webhook/"
-                f"{account.webhook_secret}/"
-            )
-        )
-
         return Response({
-            "success":
-                True,
-
-            "account_id":
-                account.id,
-
-            "webhook_secret":
-                account.webhook_secret,
-
-            "webhook_url":
-                webhook_url,
+            "success": True,
+            "account_id": account.id,
+            "webhook_secret": account.webhook_secret,
+            "webhook_url": self._build_webhook_url(request, account),
         })
 
     # --------------------------------------------------------
@@ -313,43 +244,21 @@ class TradingAccountViewSet(
     @action(
         detail=True,
         methods=["patch"],
-        url_path=(
-            "tradingview/status"
-        ),
+        url_path="tradingview/status",
     )
-    def update_webhook_status(
-        self,
-        request,
-        pk=None,
-    ):
+    def update_webhook_status(self, request, pk=None):
 
-        account = (
-            self.get_object()
-        )
+        account = self.get_object()
 
-        enabled = (
-            request.data.get(
-                "enabled"
-            )
-        )
+        enabled = request.data.get("enabled")
 
-        if not isinstance(
-            enabled,
-            bool,
-        ):
-
+        if not isinstance(enabled, bool):
             return Response(
-                {
-                    "detail":
-                        "enabled must be true or false."
-                },
-                status=
-                    status.HTTP_400_BAD_REQUEST,
+                {"detail": "enabled must be true or false."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        account.webhook_enabled = (
-            enabled
-        )
+        account.webhook_enabled = enabled
 
         account.save(
             update_fields=[
@@ -359,16 +268,10 @@ class TradingAccountViewSet(
         )
 
         return Response({
-            "success":
-                True,
-
-            "account_id":
-                account.id,
-
-            "enabled":
-                account.webhook_enabled,
+            "success": True,
+            "account_id": account.id,
+            "enabled": account.webhook_enabled,
         })
-
 
 # ============================================================
 # TRADES

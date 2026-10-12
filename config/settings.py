@@ -12,21 +12,33 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import os
+from dotenv import load_dotenv
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-a@_&*qe67h5x-byyb1t1*6*&pxntm397)1#f%qvem0a)+cy!*9'
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() == "true"
+SECURE_SSL_REDIRECT = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_HSTS_SECONDS = 3600 if not DEBUG else 0
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv(
+    "ALLOWED_HOSTS",
+    "127.0.0.1,localhost"
+).split(",")
 
 
 # Application definition
@@ -165,12 +177,18 @@ CORS_ALLOWED_ORIGINS = [
 MAILERS = {
     "default": {
         "BACKEND":
-            "django.core.mail.backends.console.EmailBackend",
+            "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS":{
+            "host":"smtp-relay.brevo.com",
+            "port":"587",
+            "username":os.getenv("EMAIL_HOST_USER"),
+            "password":os.getenv("EMAIL_HOST_PASSWORD"),
+            "use_tls":True
+        }
     },
 }
 
-DEFAULT_FROM_EMAIL = (
-    "noreply@tradecraft.local"
-)
+DEFAULT_FROM_EMAIL = (os.getenv("DEFAULT_FROM_EMAIL"))
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+
